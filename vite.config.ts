@@ -12,6 +12,7 @@ export default defineConfig({
     mdx({
       remarkPlugins: [remarkGfm, remarkFrontmatter],
       rehypePlugins: [rehypeSlug],
+      providerImportSource: "@mdx-js/react",
     }),
     react(),
     tailwindcss(),

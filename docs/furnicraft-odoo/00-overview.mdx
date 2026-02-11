@@ -28,24 +28,24 @@
 ```mermaid
 graph TB
     CEO[Direktur Utama]
-    
+
     CEO --> CFO[Direktur Keuangan]
     CEO --> COO[Direktur Operasional]
     CEO --> CMO[Direktur Pemasaran]
-    
+
     CFO --> ACC[Accounting]
     CFO --> FIN[Finance]
-    
+
     COO --> PROD[Produksi]
     COO --> PURCH[Purchasing]
     COO --> WH[Warehouse]
     COO --> QC[Quality Control]
     COO --> HR[HRD]
-    
+
     CMO --> SALES[Sales]
     CMO --> MKT[Marketing]
     CMO --> CS[Customer Service]
-    
+
     PROD --> WS1[Workshop Kayu]
     PROD --> WS2[Workshop Finishing]
     PROD --> WS3[Workshop Assembly]
@@ -81,34 +81,34 @@ graph TB
 gantt
     title Roadmap Implementasi Odoo 16 - PT. Furnicraft Indonesia
     dateFormat  YYYY-MM-DD
-    
+
     section Phase 1: Foundation
     Instalasi & Setup Server       :p1a, 2024-01-01, 7d
     Konfigurasi Perusahaan        :p1b, after p1a, 5d
     Setup Users & Access Rights   :p1c, after p1b, 3d
-    
+
     section Phase 2: Master Data
     Product Categories & Products  :p2a, after p1c, 7d
     Contacts (Vendor & Customer)   :p2b, after p1c, 5d
     Chart of Accounts Indonesia    :p2c, after p1c, 5d
-    
+
     section Phase 3: Core Operations
     Inventory & Warehouse          :p3a, after p2a, 10d
     Purchase Management            :p3b, after p3a, 7d
     Manufacturing (MRP)            :p3c, after p3b, 14d
     Sales Management               :p3d, after p3a, 7d
-    
+
     section Phase 4: Finance
     Accounting Setup               :p4a, after p3d, 10d
     Invoicing & Payments           :p4b, after p4a, 7d
     Bank Reconciliation            :p4c, after p4b, 5d
-    
+
     section Phase 5: Extended
     CRM                            :p5a, after p4c, 7d
     HR & Payroll                   :p5b, after p4c, 10d
     Project Management             :p5c, after p4c, 5d
     Quality Control                :p5d, after p3c, 7d
-    
+
     section Phase 6: Digital
     Website & eCommerce            :p6a, after p5a, 14d
     Reporting & Dashboards         :p6b, after p6a, 7d
@@ -154,13 +154,13 @@ flowchart LR
         A[Purchase Request] --> B[RFQ ke Vendor]
         B --> C[Purchase Order]
     end
-    
+
     subgraph Receiving
         C --> D[Goods Receipt]
         D --> E[Quality Check]
         E --> F[Stock Update]
     end
-    
+
     subgraph Payment
         C --> G[Vendor Bill]
         G --> H[Payment Approval]
@@ -177,7 +177,7 @@ flowchart LR
         A[Lead/Opportunity] --> B[Quotation]
         B --> C[Sales Order]
     end
-    
+
     subgraph Fulfillment
         C --> D[Manufacturing Order]
         D --> E[Production]
@@ -185,7 +185,7 @@ flowchart LR
         F --> G[Delivery Order]
         G --> H[Shipment]
     end
-    
+
     subgraph Revenue
         C --> I[Customer Invoice]
         I --> J[Payment Collection]
@@ -202,7 +202,7 @@ flowchart TB
         B -->|Yes| C[Reserve Stock]
         B -->|No| D[Create MO]
     end
-    
+
     subgraph Planning
         D --> E[Check BoM]
         E --> F{Materials Ready?}
@@ -211,7 +211,7 @@ flowchart TB
         H --> F
         F -->|Yes| I[Schedule Production]
     end
-    
+
     subgraph Production
         I --> J[Work Order: Cutting]
         J --> K[Work Order: Assembly]
@@ -219,7 +219,7 @@ flowchart TB
         L --> M[Quality Inspection]
         M --> N[Finished Goods]
     end
-    
+
     subgraph Delivery
         C --> O[Prepare Delivery]
         N --> O
@@ -279,13 +279,13 @@ flowchart TB
 ## Catatan Implementasi
 
 > **Versi Odoo**: 16.0 Community Edition (CE)
-> 
+>
 > **Bahasa**: Bahasa Indonesia (id_ID)
-> 
+>
 > **Timezone**: Asia/Jakarta (WIB)
-> 
+>
 > **Currency**: Indonesian Rupiah (IDR)
-> 
+>
 > **Fiscal Year**: Januari - Desember
 
 ---
