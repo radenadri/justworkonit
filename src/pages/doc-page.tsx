@@ -1,7 +1,8 @@
 import { useParams, Link, useOutletContext } from "react-router-dom";
 import { useDoc } from "@/hooks/use-docs";
 import { useKeyboardNav } from "@/hooks/use-keyboard-nav";
-import { MarkdownRenderer } from "@/components/markdown-renderer";
+import { MdxRenderer } from "@/components/mdx-renderer";
+import { ProgressProvider } from "@/components/progress-context";
 import { TableOfContents } from "@/components/table-of-contents";
 import type { Collection } from "@/types";
 
@@ -81,8 +82,10 @@ export function DocPage() {
 
         <div className="h-0.5 bg-foreground mb-8" />
 
-        {/* Markdown content */}
-        <MarkdownRenderer content={doc.content} />
+        {/* MDX content */}
+        <ProgressProvider docKey={`${collection}/${slug}`}>
+          <MdxRenderer Content={doc.Content} />
+        </ProgressProvider>
 
         {/* Prev / Next navigation */}
         <div className="mt-16 pt-8 border-t-2 border-foreground">
@@ -120,7 +123,6 @@ export function DocPage() {
 
       {/* Table of Contents (desktop only) */}
       <TableOfContents
-        content={doc.content}
         className="hidden lg:block border-l border-border-light"
       />
     </div>

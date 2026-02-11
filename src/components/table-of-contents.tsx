@@ -1,41 +1,59 @@
-import { useEffect, useState } from "react";
-import { cn } from "@/lib/utils";
+import { useEffect, useState, useRef, useCallback } from "react";
 
-interface TocItem {
+interface TocHeading {
   id: string;
   text: string;
   level: number;
 }
 
 interface TableOfContentsProps {
-  content: string;
   className?: string;
 }
 
-function extractHeadings(markdown: string): TocItem[] {
-  const headingRegex = /^(#{1,4})\s+(.+)$/gm;
-  const items: TocItem[] = [];
-  let match;
-
-  while ((match = headingRegex.exec(markdown)) !== null) {
-    const level = match[1].length;
-    const text = match[2].replace(/[*_`\[\]]/g, "").trim();
-    const id = text
-      .toLowerCase()
-      .replace(/[^a-z0-9\s-]/g, "")
-      .replace(/\s+/g, "-");
-    items.push({ id, text, level });
-  }
-
-  return items;
-}
-
-export function TableOfContents({ content, className }: TableOfContentsProps) {
-  const headings = extractHeadings(content);
+export function TableOfContents({ className }: TableOfContentsProps) {
+  const [headings, setHeadings] = useState<TocHeading[]>([]);
   const [activeId, setActiveId] = useState<string>("");
+  const observerRef = useRef<IntersectionObserver | null>(null);
 
+  // Extract headings from the rendered DOM
+  const extractHeadings = useCallback(() => {
+    const article = document.querySelector("article.prose");
+    if (!article) return;
+
+    const elements = article.querySelectorAll("h1, h2, h3, h4");
+    const extracted: TocHeading[] = [];
+
+    elements.forEach(el => {
+      const id = el.id;
+      const text = el.textContent ?? "";
+      const level = parseInt(el.tagName[1], 10);
+      if (id && text) {
+        extracted.push({ id, text, level });
+      }
+    });
+
+    setHeadings(extracted);
+  }, []);
+
+  // Extract headings after MDX content renders
   useEffect(() => {
-    const observer = new IntersectionObserver(
+    // Small delay to ensure MDX content is mounted
+    const timer = setTimeout(extractHeadings, 100);
+    return () => clearTimeout(timer);
+  }, [extractHeadings]);
+
+  // Re-extract on route changes (content prop removed, so watch URL)
+  useEffect(() => {
+    extractHeadings();
+  }, [extractHeadings, globalThis.location?.pathname]);
+
+  // Scroll-spy via IntersectionObserver
+  useEffect(() => {
+    if (headings.length === 0) return;
+
+    observerRef.current?.disconnect();
+
+    observerRef.current = new IntersectionObserver(
       entries => {
         for (const entry of entries) {
           if (entry.isIntersecting) {
@@ -43,42 +61,46 @@ export function TableOfContents({ content, className }: TableOfContentsProps) {
           }
         }
       },
-      { rootMargin: "-80px 0px -60% 0px" }
+      { rootMargin: "-80px 0px -60% 0px", threshold: 0.1 },
     );
 
-    headings.forEach(({ id }) => {
-      const el = document.getElementById(id);
-      if (el) observer.observe(el);
-    });
+    for (const heading of headings) {
+      const el = document.getElementById(heading.id);
+      if (el) observerRef.current.observe(el);
+    }
 
-    return () => observer.disconnect();
+    return () => observerRef.current?.disconnect();
   }, [headings]);
 
-  if (headings.length < 3) return null;
+  if (headings.length === 0) return null;
 
   return (
-    <nav className={cn("w-48 shrink-0", className)}>
-      <div className="sticky top-20 py-6 pl-4">
-        <h4 className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-4">
+    <nav className={className ?? "hidden xl:block"} aria-label="Table of contents">
+      <div className="sticky top-24">
+        <h4 className="font-heading mb-3 text-xs font-bold uppercase tracking-widest text-neutral-400">
           On this page
         </h4>
-        <ul className="space-y-1 border-l border-border-light">
-          {headings.map(({ id, text, level }) => (
-            <li key={id}>
+        <ul className="space-y-1.5 text-sm">
+          {headings.map(heading => (
+            <li
+              key={heading.id}
+              style={{ paddingLeft: `${(heading.level - 1) * 12}px` }}
+            >
               <a
-                href={`#${id}`}
-                className={cn(
-                  "block text-xs py-1 transition-colors duration-100 border-l-2 -ml-px",
-                  level === 1 && "pl-3",
-                  level === 2 && "pl-3",
-                  level === 3 && "pl-6",
-                  level === 4 && "pl-9",
-                  activeId === id
-                    ? "border-foreground text-foreground font-medium"
-                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-border-light"
-                )}
+                href={`#${heading.id}`}
+                onClick={e => {
+                  e.preventDefault();
+                  document
+                    .getElementById(heading.id)
+                    ?.scrollIntoView({ behavior: "smooth" });
+                }}
+                className={`block border-l-2 py-0.5 pl-3 transition-colors ${
+                  activeId === heading.id
+                    ? "border-black font-medium text-black"
+                    : "border-transparent text-neutral-500 hover:text-black"
+                }`}
               >
-                {text}
+                {heading.text}
               </a>
             </li>
           ))}

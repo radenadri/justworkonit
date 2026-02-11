@@ -9,16 +9,17 @@
     "preview": "bunx --bun vite preview"
   },
   "dependencies": {
+    "@mdx-js/react": "^3.1.1",
+    "@mdx-js/rollup": "^3.1.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.563.0",
+    "mermaid": "^11.12.2",
     "react": "^19",
     "react-dom": "^19",
-    "react-markdown": "^10.1.0",
     "react-router-dom": "^7.13.0",
-    "rehype-highlight": "^7.0.2",
-    "rehype-raw": "^7.0.0",
     "rehype-slug": "^6.0.0",
+    "remark-frontmatter": "^5.0.0",
     "remark-gfm": "^4.0.1",
     "tailwind-merge": "^3.4.0"
   },

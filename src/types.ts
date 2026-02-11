@@ -1,3 +1,5 @@
+import type { ComponentType } from "react";
+
 export interface DocMeta {
   slug: string;
   title: string;
@@ -12,5 +14,5 @@ export interface Collection {
 }
 
 export interface DocContent extends DocMeta {
-  content: string;
+  Content: ComponentType;
 }

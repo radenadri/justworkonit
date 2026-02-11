@@ -7,9 +7,7 @@ export function useCollections(): {
   loading: boolean;
   error: string | null;
 } {
-  // getCollections() is synchronous — just reads from the glob index
   const collections = useMemo(() => getCollections(), []);
-
   return { collections, loading: false, error: null };
 }
 

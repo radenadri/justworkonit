@@ -1,29 +1,27 @@
+import type { ComponentType } from "react";
 import type { Collection, DocMeta, DocContent } from "@/types";
 
-// Lazy-load all markdown files at build time via Vite glob
-// Keys: "/docs/blind75/01-contains-duplicate.md" → () => Promise<string>
-const markdownModules = import.meta.glob<string>("/docs/**/*.md", {
-  query: "?raw",
-  import: "default",
-});
+// Lazy-load all MDX files at build time via Vite glob
+// Each entry returns a module with { default: ComponentType }
+const mdxModules = import.meta.glob<{ default: ComponentType }>("/docs/**/*.mdx");
 
-// Parse a glob key like "/docs/blind75/01-contains-duplicate.md"
+// Parse a glob key like "/docs/blind75/01-contains-duplicate.mdx"
 function parseGlobKey(key: string): { collection: string; filename: string } | null {
-  const match = key.match(/^\/docs\/([^/]+)\/(.+\.md)$/);
+  const match = key.match(/^\/docs\/([^/]+)\/(.+\.mdx)$/);
   if (!match) return null;
   return { collection: match[1], filename: match[2] };
 }
 
 function slugify(filename: string): string {
   return filename
-    .replace(/\.md$/, "")
+    .replace(/\.mdx$/, "")
     .toLowerCase()
     .replace(/\s+/g, "-")
     .replace(/[^a-z0-9-]/g, "");
 }
 
 function extractTitle(filename: string): string {
-  const name = filename.replace(/\.md$/, "");
+  const name = filename.replace(/\.mdx$/, "");
   return name.replace(/^\d+[-\s]*/, "").replace(/-/g, " ");
 }
 
@@ -46,7 +44,7 @@ function formatCollectionLabel(name: string): string {
 export function getCollections(): Collection[] {
   const collectionMap = new Map<string, DocMeta[]>();
 
-  for (const key of Object.keys(markdownModules)) {
+  for (const key of Object.keys(mdxModules)) {
     const parsed = parseGlobKey(key);
     if (!parsed) continue;
 
@@ -76,13 +74,12 @@ export function getCollections(): Collection[] {
   return collections.sort((a, b) => a.label.localeCompare(b.label));
 }
 
-// Load a single doc's content (lazy — only fetches the chunk when called)
+// Load a single doc's MDX component (lazy — only fetches the chunk when called)
 export async function getDoc(
   collection: string,
   slug: string,
 ): Promise<DocContent | null> {
-  // Find the matching glob key
-  const matchingKey = Object.keys(markdownModules).find(key => {
+  const matchingKey = Object.keys(mdxModules).find(key => {
     const parsed = parseGlobKey(key);
     return parsed && parsed.collection === collection && slugify(parsed.filename) === slug;
   });
@@ -90,13 +87,13 @@ export async function getDoc(
   if (!matchingKey) return null;
 
   const parsed = parseGlobKey(matchingKey)!;
-  const content = await markdownModules[matchingKey]();
+  const mod = await mdxModules[matchingKey]();
 
   return {
     slug,
     title: extractTitle(parsed.filename),
     order: extractOrder(parsed.filename),
     collection,
-    content,
+    Content: mod.default,
   };
 }
