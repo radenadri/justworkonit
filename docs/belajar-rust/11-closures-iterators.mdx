@@ -1,0 +1,626 @@
+# Closures & Iterators
+
+Closures dan iterators adalah pilar functional programming di Rust. Closures adalah anonymous functions yang bisa menangkap environment. Iterators menyediakan cara lazy dan composable untuk memproses sequences.
+
+## Closures
+
+### Syntax Dasar
+
+```rust
+fn main() {
+    // Closure sederhana
+    let add = |a, b| a + b;
+    println!("3 + 4 = {}", add(3, 4));
+
+    // Closure dengan type annotation
+    let multiply = |a: i32, b: i32| -> i32 { a * b };
+    println!("3 * 4 = {}", multiply(3, 4));
+
+    // Closure satu ekspresi (tanpa curly braces)
+    let square = |x: i32| x * x;
+    println!("5^2 = {}", square(5));
+
+    // Closure tanpa parameter
+    let greet = || println!("Hello!");
+    greet();
+}
+```
+
+### Capturing Variables
+
+Closures bisa menangkap variabel dari lingkungan sekitarnya:
+
+```rust
+fn main() {
+    // Capture by reference (&T) — Fn
+    let name = String::from("Budi");
+    let greet = || println!("Hello, {}!", name);
+    greet();
+    println!("name masih bisa dipakai: {}", name);
+
+    // Capture by mutable reference (&mut T) — FnMut
+    let mut count = 0;
+    let mut increment = || {
+        count += 1;
+        println!("Count: {}", count);
+    };
+    increment();
+    increment();
+    println!("Final count: {}", count);
+
+    // Capture by value (move) — FnOnce
+    let data = vec![1, 2, 3];
+    let consume = move || {
+        println!("Data: {:?}", data);
+        // data dipindahkan ke closure
+    };
+    consume();
+    // println!("{:?}", data); // ERROR: data sudah moved
+}
+```
+
+### Fn, FnMut, FnOnce
+
+Tiga trait untuk closures:
+
+- **Fn** — meminjam immutably, bisa dipanggil berkali-kali
+- **FnMut** — meminjam mutably, bisa dipanggil berkali-kali
+- **FnOnce** — mengambil ownership, hanya bisa dipanggil sekali
+
+```rust
+fn apply_fn<F: Fn(i32) -> i32>(f: F, x: i32) -> i32 {
+    f(x)
+}
+
+fn apply_fn_mut<F: FnMut()>(mut f: F, times: u32) {
+    for _ in 0..times {
+        f();
+    }
+}
+
+fn apply_fn_once<F: FnOnce() -> Vec<i32>>(f: F) -> Vec<i32> {
+    f()
+}
+
+fn main() {
+    // Fn
+    let double = |x| x * 2;
+    println!("{}", apply_fn(double, 5));
+    println!("{}", apply_fn(double, 10)); // Bisa dipanggil lagi
+
+    // FnMut
+    let mut total = 0;
+    let adder = || { total += 1; };
+    apply_fn_mut(adder, 3);
+
+    // FnOnce
+    let data = vec![1, 2, 3];
+    let result = apply_fn_once(move || {
+        let mut d = data;
+        d.push(4);
+        d
+    });
+    println!("{:?}", result);
+}
+```
+
+### Closures sebagai Return Type
+
+```rust
+fn make_adder(n: i32) -> impl Fn(i32) -> i32 {
+    move |x| x + n
+}
+
+fn make_multiplier(factor: f64) -> Box<dyn Fn(f64) -> f64> {
+    Box::new(move |x| x * factor)
+}
+
+fn main() {
+    let add5 = make_adder(5);
+    println!("10 + 5 = {}", add5(10));
+
+    let double = make_multiplier(2.0);
+    println!("3.5 * 2 = {}", double(3.5));
+}
+```
+
+## Iterators
+
+### Iterator Trait
+
+Semua iterators implementasi trait `Iterator` dengan method `next()`:
+
+```rust
+fn main() {
+    let v = vec![1, 2, 3];
+
+    // iter() — meminjam (&T)
+    let mut iter = v.iter();
+    assert_eq!(iter.next(), Some(&1));
+    assert_eq!(iter.next(), Some(&2));
+    assert_eq!(iter.next(), Some(&3));
+    assert_eq!(iter.next(), None);
+
+    // into_iter() — mengambil ownership (T)
+    let v2 = vec![10, 20, 30];
+    for val in v2.into_iter() {
+        println!("{}", val); // val bertipe i32, bukan &i32
+    }
+    // v2 sudah moved
+
+    // iter_mut() — meminjam mutable (&mut T)
+    let mut v3 = vec![1, 2, 3];
+    for val in v3.iter_mut() {
+        *val *= 10;
+    }
+    println!("{:?}", v3); // [10, 20, 30]
+}
+```
+
+### Iterator Adaptors (Lazy)
+
+Adaptors mengubah iterator menjadi iterator baru — lazy, tidak dieksekusi sampai consumed:
+
+```rust
+fn main() {
+    let numbers = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+    // map — transformasi setiap elemen
+    let doubled: Vec<i32> = numbers.iter().map(|&x| x * 2).collect();
+    println!("Doubled: {:?}", doubled);
+
+    // filter — pilih elemen yang memenuhi kondisi
+    let evens: Vec<&i32> = numbers.iter().filter(|&&x| x % 2 == 0).collect();
+    println!("Evens: {:?}", evens);
+
+    // take — ambil N elemen pertama
+    let first3: Vec<&i32> = numbers.iter().take(3).collect();
+    println!("First 3: {:?}", first3);
+
+    // skip — lewati N elemen pertama
+    let after3: Vec<&i32> = numbers.iter().skip(7).collect();
+    println!("After 7: {:?}", after3);
+
+    // enumerate — tambahkan index
+    for (i, val) in numbers.iter().enumerate().take(3) {
+        println!("[{}] = {}", i, val);
+    }
+
+    // zip — gabungkan dua iterator
+    let names = vec!["Alice", "Bob", "Charlie"];
+    let scores = vec![90, 85, 95];
+    let paired: Vec<_> = names.iter().zip(scores.iter()).collect();
+    println!("Paired: {:?}", paired);
+
+    // chain — sambungkan dua iterator
+    let a = vec![1, 2];
+    let b = vec![3, 4];
+    let chained: Vec<_> = a.iter().chain(b.iter()).collect();
+    println!("Chained: {:?}", chained);
+
+    // flat_map — map + flatten
+    let sentences = vec!["hello world", "foo bar"];
+    let words: Vec<&str> = sentences.iter().flat_map(|s| s.split(' ')).collect();
+    println!("Words: {:?}", words);
+}
+```
+
+### Iterator Consumers
+
+Consumers mengkonsumsi iterator dan menghasilkan nilai:
+
+```rust
+fn main() {
+    let numbers = vec![1, 2, 3, 4, 5];
+
+    // collect — kumpulkan ke collection
+    let doubled: Vec<i32> = numbers.iter().map(|&x| x * 2).collect();
+
+    // sum
+    let total: i32 = numbers.iter().sum();
+    println!("Sum: {}", total);
+
+    // fold — akumulator custom
+    let product = numbers.iter().fold(1, |acc, &x| acc * x);
+    println!("Product: {}", product);
+
+    // count
+    let even_count = numbers.iter().filter(|&&x| x % 2 == 0).count();
+    println!("Even count: {}", even_count);
+
+    // any & all
+    let has_even = numbers.iter().any(|&x| x % 2 == 0);
+    let all_positive = numbers.iter().all(|&x| x > 0);
+    println!("Has even: {}, All positive: {}", has_even, all_positive);
+
+    // find
+    let first_even = numbers.iter().find(|&&x| x % 2 == 0);
+    println!("First even: {:?}", first_even);
+
+    // position
+    let pos = numbers.iter().position(|&x| x == 3);
+    println!("Position of 3: {:?}", pos);
+
+    // min, max
+    println!("Min: {:?}", numbers.iter().min());
+    println!("Max: {:?}", numbers.iter().max());
+}
+```
+
+### Chaining Iterators
+
+Kekuatan sebenarnya muncul saat chaining:
+
+```rust
+fn main() {
+    let data = vec![
+        ("Alice", 85),
+        ("Bob", 92),
+        ("Charlie", 78),
+        ("Diana", 95),
+        ("Eve", 88),
+    ];
+
+    // Cari nama siswa dengan nilai > 85, sort, capitalize
+    let honor_roll: Vec<String> = data.iter()
+        .filter(|(_, score)| *score > 85)
+        .map(|(name, score)| format!("{} ({})", name, score))
+        .collect();
+
+    println!("Honor roll: {:?}", honor_roll);
+
+    // Rata-rata nilai
+    let (sum, count) = data.iter()
+        .map(|(_, score)| score)
+        .fold((0, 0), |(sum, count), &score| (sum + score, count + 1));
+
+    println!("Average: {:.1}", sum as f64 / count as f64);
+}
+```
+
+### Custom Iterator
+
+```rust
+struct Fibonacci {
+    a: u64,
+    b: u64,
+}
+
+impl Fibonacci {
+    fn new() -> Self {
+        Fibonacci { a: 0, b: 1 }
+    }
+}
+
+impl Iterator for Fibonacci {
+    type Item = u64;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let result = self.a;
+        let new_b = self.a + self.b;
+        self.a = self.b;
+        self.b = new_b;
+        Some(result)
+    }
+}
+
+fn main() {
+    // Ambil 10 angka Fibonacci pertama
+    let fibs: Vec<u64> = Fibonacci::new().take(10).collect();
+    println!("Fibonacci: {:?}", fibs);
+
+    // Fibonacci di bawah 100
+    let small_fibs: Vec<u64> = Fibonacci::new()
+        .take_while(|&x| x < 100)
+        .collect();
+    println!("Fib < 100: {:?}", small_fibs);
+
+    // Sum Fibonacci genap di bawah 1000
+    let sum: u64 = Fibonacci::new()
+        .take_while(|&x| x < 1000)
+        .filter(|x| x % 2 == 0)
+        .sum();
+    println!("Sum even fib < 1000: {}", sum);
+}
+```
+
+## Studi Kasus: Data Pipeline
+
+```rust
+#[derive(Debug, Clone)]
+struct Record {
+    name: String,
+    department: String,
+    salary: f64,
+    years: u32,
+}
+
+impl Record {
+    fn new(name: &str, dept: &str, salary: f64, years: u32) -> Self {
+        Record {
+            name: name.to_string(),
+            department: dept.to_string(),
+            salary,
+            years,
+        }
+    }
+}
+
+fn main() {
+    let data = vec![
+        Record::new("Alice", "Engineering", 95000.0, 5),
+        Record::new("Bob", "Marketing", 72000.0, 3),
+        Record::new("Charlie", "Engineering", 110000.0, 8),
+        Record::new("Diana", "HR", 68000.0, 2),
+        Record::new("Eve", "Engineering", 125000.0, 10),
+        Record::new("Frank", "Marketing", 80000.0, 6),
+        Record::new("Grace", "HR", 75000.0, 4),
+        Record::new("Hank", "Engineering", 88000.0, 1),
+    ];
+
+    // 1. Rata-rata gaji per department
+    println!("=== Average Salary by Department ===");
+    let departments: Vec<String> = data.iter()
+        .map(|r| r.department.clone())
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+
+    for dept in &departments {
+        let (sum, count) = data.iter()
+            .filter(|r| &r.department == dept)
+            .fold((0.0, 0), |(sum, count), r| (sum + r.salary, count + 1));
+        println!("  {}: ${:.0}", dept, sum / count as f64);
+    }
+
+    // 2. Top 3 earners
+    println!("\n=== Top 3 Earners ===");
+    let mut sorted = data.clone();
+    sorted.sort_by(|a, b| b.salary.partial_cmp(&a.salary).unwrap());
+    for r in sorted.iter().take(3) {
+        println!("  {} - ${:.0} ({})", r.name, r.salary, r.department);
+    }
+
+    // 3. Engineers dengan 5+ years, sorted by salary
+    println!("\n=== Senior Engineers ===");
+    let seniors: Vec<&Record> = data.iter()
+        .filter(|r| r.department == "Engineering" && r.years >= 5)
+        .collect();
+
+    let mut seniors_sorted = seniors.clone();
+    seniors_sorted.sort_by(|a, b| b.salary.partial_cmp(&a.salary).unwrap());
+
+    for r in seniors_sorted {
+        println!("  {} - ${:.0} ({} years)", r.name, r.salary, r.years);
+    }
+
+    // 4. Total payroll
+    let total: f64 = data.iter().map(|r| r.salary).sum();
+    println!("\nTotal payroll: ${:.0}", total);
+
+    // 5. Salary stats
+    let salaries: Vec<f64> = data.iter().map(|r| r.salary).collect();
+    let min = salaries.iter().cloned().fold(f64::INFINITY, f64::min);
+    let max = salaries.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let avg = total / data.len() as f64;
+
+    println!("Min: ${:.0}, Max: ${:.0}, Avg: ${:.0}", min, max, avg);
+}
+```
+
+## Bank Soal
+
+### Soal 1 — Closure Dasar (Mudah)
+
+Buat closure `is_even` yang mengecek apakah angka genap. Gunakan dengan `filter` pada Vec.
+
+**Jawaban:**
+
+```rust
+fn main() {
+    let is_even = |x: &i32| x % 2 == 0;
+    let numbers = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    let evens: Vec<&i32> = numbers.iter().filter(|x| is_even(x)).collect();
+    println!("Evens: {:?}", evens);
+}
+```
+
+### Soal 2 — Map dan Collect (Mudah)
+
+Konversi Vec of string angka menjadi Vec of i32, abaikan yang tidak bisa di-parse.
+
+**Jawaban:**
+
+```rust
+fn main() {
+    let strings = vec!["1", "2", "abc", "4", "xyz", "6"];
+    let numbers: Vec<i32> = strings.iter()
+        .filter_map(|s| s.parse::<i32>().ok())
+        .collect();
+    println!("{:?}", numbers); // [1, 2, 4, 6]
+}
+```
+
+### Soal 3 — fold untuk Statistik (Sedang)
+
+Hitung mean, min, dan max dari Vec of f64 menggunakan satu kali fold.
+
+**Jawaban:**
+
+```rust
+fn main() {
+    let data = vec![3.5, 7.2, 1.1, 9.8, 4.3, 6.6];
+
+    let (sum, min, max, count) = data.iter().fold(
+        (0.0_f64, f64::INFINITY, f64::NEG_INFINITY, 0_usize),
+        |(sum, min, max, count), &val| {
+            (sum + val, min.min(val), max.max(val), count + 1)
+        },
+    );
+
+    println!("Mean: {:.2}", sum / count as f64);
+    println!("Min: {:.2}", min);
+    println!("Max: {:.2}", max);
+}
+```
+
+### Soal 4 — Custom Iterator (Sedang)
+
+Buat iterator `RangeStep` yang menghasilkan angka dari start sampai end dengan step tertentu.
+
+**Jawaban:**
+
+```rust
+struct RangeStep {
+    current: i32,
+    end: i32,
+    step: i32,
+}
+
+impl RangeStep {
+    fn new(start: i32, end: i32, step: i32) -> Self {
+        RangeStep { current: start, end, step }
+    }
+}
+
+impl Iterator for RangeStep {
+    type Item = i32;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if (self.step > 0 && self.current < self.end)
+            || (self.step < 0 && self.current > self.end)
+        {
+            let val = self.current;
+            self.current += self.step;
+            Some(val)
+        } else {
+            None
+        }
+    }
+}
+
+fn main() {
+    let up: Vec<i32> = RangeStep::new(0, 20, 3).collect();
+    println!("Step 3: {:?}", up);
+
+    let down: Vec<i32> = RangeStep::new(10, 0, -2).collect();
+    println!("Step -2: {:?}", down);
+}
+```
+
+### Soal 5 — Closure sebagai Parameter (Sedang)
+
+Buat fungsi `transform_all` yang menerima Vec dan closure, apply closure ke semua elemen.
+
+**Jawaban:**
+
+```rust
+fn transform_all<T, U, F>(items: &[T], f: F) -> Vec<U>
+where
+    F: Fn(&T) -> U,
+{
+    items.iter().map(f).collect()
+}
+
+fn main() {
+    let numbers = vec![1, 2, 3, 4, 5];
+
+    let doubled = transform_all(&numbers, |&x| x * 2);
+    println!("Doubled: {:?}", doubled);
+
+    let as_string = transform_all(&numbers, |x| format!("#{}", x));
+    println!("Strings: {:?}", as_string);
+
+    let names = vec!["alice", "bob", "charlie"];
+    let upper = transform_all(&names, |s| s.to_uppercase());
+    println!("Upper: {:?}", upper);
+}
+```
+
+### Soal 6 — Iterator Chain Complex (Sulit)
+
+Dari daftar kalimat, hitung frekuensi panjang kata (berapa kata yang panjangnya 1, 2, 3, dst).
+
+**Jawaban:**
+
+```rust
+use std::collections::HashMap;
+
+fn main() {
+    let sentences = vec![
+        "the quick brown fox",
+        "jumps over the lazy dog",
+        "a b c d e f g",
+    ];
+
+    let freq: HashMap<usize, usize> = sentences.iter()
+        .flat_map(|s| s.split_whitespace())
+        .map(|word| word.len())
+        .fold(HashMap::new(), |mut map, len| {
+            *map.entry(len).or_insert(0) += 1;
+            map
+        });
+
+    let mut sorted: Vec<_> = freq.iter().collect();
+    sorted.sort_by_key(|(&len, _)| len);
+
+    for (len, count) in sorted {
+        println!("Length {}: {} words", len, count);
+    }
+}
+```
+
+### Soal 7 — Window Iterator (Sulit)
+
+Buat fungsi yang menghitung moving average dari slice angka dengan window size N.
+
+**Jawaban:**
+
+```rust
+fn moving_average(data: &[f64], window: usize) -> Vec<f64> {
+    data.windows(window)
+        .map(|w| w.iter().sum::<f64>() / w.len() as f64)
+        .collect()
+}
+
+fn main() {
+    let prices = vec![100.0, 102.0, 98.0, 105.0, 110.0, 108.0, 112.0];
+    let ma3 = moving_average(&prices, 3);
+    let ma5 = moving_average(&prices, 5);
+
+    println!("Prices: {:?}", prices);
+    println!("MA(3):  {:?}", ma3);
+    println!("MA(5):  {:?}", ma5);
+}
+```
+
+### Soal 8 — Higher-Order Function (Sulit)
+
+Buat fungsi `compose` yang menerima dua closures dan mengembalikan closure baru yang merupakan komposisi keduanya: compose(f, g)(x) = f(g(x)).
+
+**Jawaban:**
+
+```rust
+fn compose<A, B, C, F, G>(f: F, g: G) -> impl Fn(A) -> C
+where
+    F: Fn(B) -> C,
+    G: Fn(A) -> B,
+{
+    move |x| f(g(x))
+}
+
+fn main() {
+    let double = |x: i32| x * 2;
+    let add_one = |x: i32| x + 1;
+
+    let double_then_add = compose(add_one, double);
+    let add_then_double = compose(double, add_one);
+
+    println!("double_then_add(5) = {}", double_then_add(5)); // (5*2)+1 = 11
+    println!("add_then_double(5) = {}", add_then_double(5)); // (5+1)*2 = 12
+
+    // Triple compose
+    let triple = compose(compose(double, add_one), double);
+    println!("triple(3) = {}", triple(3)); // ((3*2)+1)*2 = 14
+}
+```

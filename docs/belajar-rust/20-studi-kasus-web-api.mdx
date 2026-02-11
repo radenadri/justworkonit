@@ -1,0 +1,1075 @@
+# Studi Kasus: REST API dengan Axum
+
+Pada bab terakhir ini, kita akan membangun **REST API lengkap** menggunakan framework **Axum** — salah satu web framework Rust paling populer yang dibangun di atas ekosistem Tokio. Kita akan membuat API untuk manajemen kontak dengan fitur CRUD, validasi, dan error handling yang proper.
+
+## Kenapa Axum?
+
+Axum dikembangkan oleh tim Tokio dan memiliki beberapa keunggulan:
+
+- **Type-safe routing** — extractor pattern yang powerful
+- **Middleware via Tower** — ekosistem middleware yang mature
+- **Async-native** — built on top of Tokio
+- **Ergonomic** — API yang bersih dan idiomatic Rust
+- **Performance** — salah satu yang tercepat di benchmark web framework
+
+## Setup Project
+
+Buat project baru dan tambahkan dependencies:
+
+```bash
+cargo new contact-api
+cd contact-api
+```
+
+Edit `Cargo.toml`:
+
+```toml
+[package]
+name = "contact-api"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+chrono = { version = "0.4", features = ["serde"] }
+```
+
+## Struktur Project
+
+```
+contact-api/
+├── Cargo.toml
+└── src/
+    ├── main.rs        # Entry point + router setup
+    ├── models.rs      # Data structures
+    ├── handlers.rs    # Request handlers
+    ├── store.rs       # In-memory data store
+    └── errors.rs      # Custom error types
+```
+
+## Model Data
+
+File `src/models.rs` — definisi struct untuk Contact:
+
+```rust
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Contact {
+    pub id: Uuid,
+    pub name: String,
+    pub email: String,
+    pub phone: Option<String>,
+    pub company: Option<String>,
+    pub notes: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateContact {
+    pub name: String,
+    pub email: String,
+    pub phone: Option<String>,
+    pub company: Option<String>,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateContact {
+    pub name: Option<String>,
+    pub email: Option<String>,
+    pub phone: Option<String>,
+    pub company: Option<String>,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ApiResponse<T: Serialize> {
+    pub success: bool,
+    pub data: Option<T>,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PaginatedResponse<T: Serialize> {
+    pub success: bool,
+    pub data: Vec<T>,
+    pub total: usize,
+    pub page: usize,
+    pub per_page: usize,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ListQuery {
+    pub page: Option<usize>,
+    pub per_page: Option<usize>,
+    pub search: Option<String>,
+}
+
+impl Contact {
+    pub fn new(input: CreateContact) -> Self {
+        let now = Utc::now();
+        Self {
+            id: Uuid::new_v4(),
+            name: input.name,
+            email: input.email,
+            phone: input.phone,
+            company: input.company,
+            notes: input.notes,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    pub fn apply_update(&mut self, update: UpdateContact) {
+        if let Some(name) = update.name {
+            self.name = name;
+        }
+        if let Some(email) = update.email {
+            self.email = email;
+        }
+        if update.phone.is_some() {
+            self.phone = update.phone;
+        }
+        if update.company.is_some() {
+            self.company = update.company;
+        }
+        if update.notes.is_some() {
+            self.notes = update.notes;
+        }
+        self.updated_at = Utc::now();
+    }
+}
+```
+
+## Custom Error Types
+
+File `src/errors.rs` — error handling yang proper:
+
+```rust
+use axum::{
+    http::StatusCode,
+    response::{IntoResponse, Response},
+    Json,
+};
+use serde_json::json;
+
+#[derive(Debug)]
+pub enum ApiError {
+    NotFound(String),
+    BadRequest(String),
+    Conflict(String),
+    Internal(String),
+}
+
+impl std::fmt::Display for ApiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ApiError::NotFound(msg) => write!(f, "Not Found: {}", msg),
+            ApiError::BadRequest(msg) => write!(f, "Bad Request: {}", msg),
+            ApiError::Conflict(msg) => write!(f, "Conflict: {}", msg),
+            ApiError::Internal(msg) => write!(f, "Internal Error: {}", msg),
+        }
+    }
+}
+
+impl IntoResponse for ApiError {
+    fn into_response(self) -> Response {
+        let (status, message) = match &self {
+            ApiError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
+            ApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
+            ApiError::Conflict(msg) => (StatusCode::CONFLICT, msg.clone()),
+            ApiError::Internal(msg) => {
+                tracing::error!("Internal error: {}", msg);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".to_string(),
+                )
+            }
+        };
+
+        let body = json!({
+            "success": false,
+            "error": message,
+            "status": status.as_u16(),
+        });
+
+        (status, Json(body)).into_response()
+    }
+}
+```
+
+## In-Memory Store
+
+File `src/store.rs` — thread-safe data store menggunakan Arc dan RwLock:
+
+```rust
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use uuid::Uuid;
+
+use crate::models::{Contact, CreateContact, UpdateContact};
+use crate::errors::ApiError;
+
+pub type SharedStore = Arc<ContactStore>;
+
+pub struct ContactStore {
+    contacts: RwLock<HashMap<Uuid, Contact>>,
+}
+
+impl ContactStore {
+    pub fn new() -> Self {
+        Self {
+            contacts: RwLock::new(HashMap::new()),
+        }
+    }
+
+    pub async fn create(&self, input: CreateContact) -> Result<Contact, ApiError> {
+        // Validasi
+        if input.name.trim().is_empty() {
+            return Err(ApiError::BadRequest(
+                "Name cannot be empty".to_string(),
+            ));
+        }
+        if !input.email.contains('@') {
+            return Err(ApiError::BadRequest(
+                "Invalid email format".to_string(),
+            ));
+        }
+
+        // Cek duplikat email
+        let contacts = self.contacts.read().await;
+        let email_exists = contacts
+            .values()
+            .any(|c| c.email.to_lowercase() == input.email.to_lowercase());
+        drop(contacts);
+
+        if email_exists {
+            return Err(ApiError::Conflict(format!(
+                "Contact with email '{}' already exists",
+                input.email
+            )));
+        }
+
+        let contact = Contact::new(input);
+        let result = contact.clone();
+
+        let mut contacts = self.contacts.write().await;
+        contacts.insert(contact.id, contact);
+
+        Ok(result)
+    }
+
+    pub async fn get(&self, id: Uuid) -> Result<Contact, ApiError> {
+        let contacts = self.contacts.read().await;
+        contacts
+            .get(&id)
+            .cloned()
+            .ok_or_else(|| ApiError::NotFound(format!("Contact {} not found", id)))
+    }
+
+    pub async fn list(
+        &self,
+        search: Option<String>,
+        page: usize,
+        per_page: usize,
+    ) -> (Vec<Contact>, usize) {
+        let contacts = self.contacts.read().await;
+
+        let mut filtered: Vec<Contact> = if let Some(ref query) = search {
+            let q = query.to_lowercase();
+            contacts
+                .values()
+                .filter(|c| {
+                    c.name.to_lowercase().contains(&q)
+                        || c.email.to_lowercase().contains(&q)
+                        || c.company
+                            .as_ref()
+                            .map(|co| co.to_lowercase().contains(&q))
+                            .unwrap_or(false)
+                })
+                .cloned()
+                .collect()
+        } else {
+            contacts.values().cloned().collect()
+        };
+
+        // Sort by created_at descending (newest first)
+        filtered.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+
+        let total = filtered.len();
+        let start = (page - 1) * per_page;
+        let paginated = filtered
+            .into_iter()
+            .skip(start)
+            .take(per_page)
+            .collect();
+
+        (paginated, total)
+    }
+
+    pub async fn update(
+        &self,
+        id: Uuid,
+        input: UpdateContact,
+    ) -> Result<Contact, ApiError> {
+        // Validasi email jika di-update
+        if let Some(ref email) = input.email {
+            if !email.contains('@') {
+                return Err(ApiError::BadRequest(
+                    "Invalid email format".to_string(),
+                ));
+            }
+
+            // Cek duplikat email (kecuali contact ini sendiri)
+            let contacts = self.contacts.read().await;
+            let email_exists = contacts.values().any(|c| {
+                c.id != id
+                    && c.email.to_lowercase() == email.to_lowercase()
+            });
+            drop(contacts);
+
+            if email_exists {
+                return Err(ApiError::Conflict(format!(
+                    "Another contact with email '{}' already exists",
+                    email
+                )));
+            }
+        }
+
+        let mut contacts = self.contacts.write().await;
+        let contact = contacts
+            .get_mut(&id)
+            .ok_or_else(|| ApiError::NotFound(format!("Contact {} not found", id)))?;
+
+        contact.apply_update(input);
+        Ok(contact.clone())
+    }
+
+    pub async fn delete(&self, id: Uuid) -> Result<Contact, ApiError> {
+        let mut contacts = self.contacts.write().await;
+        contacts
+            .remove(&id)
+            .ok_or_else(|| ApiError::NotFound(format!("Contact {} not found", id)))
+    }
+
+    pub async fn stats(&self) -> HashMap<String, usize> {
+        let contacts = self.contacts.read().await;
+        let total = contacts.len();
+        let with_company = contacts
+            .values()
+            .filter(|c| c.company.is_some())
+            .count();
+        let with_phone = contacts
+            .values()
+            .filter(|c| c.phone.is_some())
+            .count();
+
+        let mut stats = HashMap::new();
+        stats.insert("total_contacts".to_string(), total);
+        stats.insert("with_company".to_string(), with_company);
+        stats.insert("with_phone".to_string(), with_phone);
+        stats
+    }
+}
+```
+
+## Request Handlers
+
+File `src/handlers.rs` — handler functions untuk setiap endpoint:
+
+```rust
+use axum::{
+    extract::{Path, Query, State},
+    Json,
+};
+use uuid::Uuid;
+
+use crate::errors::ApiError;
+use crate::models::{
+    ApiResponse, CreateContact, ListQuery, PaginatedResponse,
+    UpdateContact,
+};
+use crate::store::SharedStore;
+
+// GET /api/contacts
+pub async fn list_contacts(
+    State(store): State<SharedStore>,
+    Query(query): Query<ListQuery>,
+) -> Result<Json<PaginatedResponse<serde_json::Value>>, ApiError> {
+    let page = query.page.unwrap_or(1).max(1);
+    let per_page = query.per_page.unwrap_or(10).min(100);
+
+    let (contacts, total) = store.list(query.search, page, per_page).await;
+
+    let data: Vec<serde_json::Value> = contacts
+        .into_iter()
+        .map(|c| serde_json::to_value(c).unwrap())
+        .collect();
+
+    Ok(Json(PaginatedResponse {
+        success: true,
+        data,
+        total,
+        page,
+        per_page,
+    }))
+}
+
+// POST /api/contacts
+pub async fn create_contact(
+    State(store): State<SharedStore>,
+    Json(input): Json<CreateContact>,
+) -> Result<(axum::http::StatusCode, Json<ApiResponse<serde_json::Value>>), ApiError> {
+    let contact = store.create(input).await?;
+
+    Ok((
+        axum::http::StatusCode::CREATED,
+        Json(ApiResponse {
+            success: true,
+            data: Some(serde_json::to_value(contact).unwrap()),
+            message: "Contact created successfully".to_string(),
+        }),
+    ))
+}
+
+// GET /api/contacts/:id
+pub async fn get_contact(
+    State(store): State<SharedStore>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, ApiError> {
+    let contact = store.get(id).await?;
+
+    Ok(Json(ApiResponse {
+        success: true,
+        data: Some(serde_json::to_value(contact).unwrap()),
+        message: "Contact retrieved".to_string(),
+    }))
+}
+
+// PUT /api/contacts/:id
+pub async fn update_contact(
+    State(store): State<SharedStore>,
+    Path(id): Path<Uuid>,
+    Json(input): Json<UpdateContact>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, ApiError> {
+    let contact = store.update(id, input).await?;
+
+    Ok(Json(ApiResponse {
+        success: true,
+        data: Some(serde_json::to_value(contact).unwrap()),
+        message: "Contact updated successfully".to_string(),
+    }))
+}
+
+// DELETE /api/contacts/:id
+pub async fn delete_contact(
+    State(store): State<SharedStore>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, ApiError> {
+    let contact = store.delete(id).await?;
+
+    Ok(Json(ApiResponse {
+        success: true,
+        data: Some(serde_json::to_value(contact).unwrap()),
+        message: "Contact deleted successfully".to_string(),
+    }))
+}
+
+// GET /api/stats
+pub async fn get_stats(
+    State(store): State<SharedStore>,
+) -> Json<ApiResponse<serde_json::Value>> {
+    let stats = store.stats().await;
+
+    Json(ApiResponse {
+        success: true,
+        data: Some(serde_json::to_value(stats).unwrap()),
+        message: "Stats retrieved".to_string(),
+    })
+}
+
+// GET /health
+pub async fn health_check() -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "status": "healthy",
+        "service": "contact-api",
+        "version": env!("CARGO_PKG_VERSION"),
+    }))
+}
+```
+
+## Main Entry Point
+
+File `src/main.rs` — setup router, middleware, dan server:
+
+```rust
+mod errors;
+mod handlers;
+mod models;
+mod store;
+
+use axum::{
+    routing::{get, post, put, delete},
+    Router,
+};
+use std::sync::Arc;
+use tower_http::cors::{Any, CorsLayer};
+use tower_http::trace::TraceLayer;
+
+use store::ContactStore;
+
+#[tokio::main]
+async fn main() {
+    // Setup tracing
+    tracing_subscriber::fmt()
+        .with_target(false)
+        .compact()
+        .init();
+
+    // Setup shared state
+    let store = Arc::new(ContactStore::new());
+
+    // Setup CORS
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
+    // Build router
+    let app = Router::new()
+        .route("/health", get(handlers::health_check))
+        .route("/api/stats", get(handlers::get_stats))
+        .route(
+            "/api/contacts",
+            get(handlers::list_contacts).post(handlers::create_contact),
+        )
+        .route(
+            "/api/contacts/{id}",
+            get(handlers::get_contact)
+                .put(handlers::update_contact)
+                .delete(handlers::delete_contact),
+        )
+        .layer(cors)
+        .layer(TraceLayer::new_for_http())
+        .with_state(store);
+
+    // Start server
+    let addr = "0.0.0.0:3000";
+    tracing::info!("Server running on http://{}", addr);
+
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    axum::serve(listener, app).await.unwrap();
+}
+```
+
+## Menjalankan API
+
+```bash
+cargo run
+```
+
+Server akan berjalan di `http://localhost:3000`.
+
+## Testing dengan curl
+
+### Health Check
+
+```bash
+curl http://localhost:3000/health
+```
+
+### Create Contact
+
+```bash
+curl -X POST http://localhost:3000/api/contacts \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Budi Santoso",
+    "email": "budi@example.com",
+    "phone": "+62812345678",
+    "company": "PT Teknologi Maju"
+  }'
+```
+
+### List Contacts
+
+```bash
+# Semua contacts
+curl http://localhost:3000/api/contacts
+
+# Dengan pagination
+curl "http://localhost:3000/api/contacts?page=1&per_page=5"
+
+# Dengan search
+curl "http://localhost:3000/api/contacts?search=budi"
+```
+
+### Get Contact by ID
+
+```bash
+curl http://localhost:3000/api/contacts/UUID_HERE
+```
+
+### Update Contact
+
+```bash
+curl -X PUT http://localhost:3000/api/contacts/UUID_HERE \
+  -H "Content-Type: application/json" \
+  -d '{
+    "company": "PT Inovasi Digital",
+    "notes": "Key contact for Project Alpha"
+  }'
+```
+
+### Delete Contact
+
+```bash
+curl -X DELETE http://localhost:3000/api/contacts/UUID_HERE
+```
+
+### Get Stats
+
+```bash
+curl http://localhost:3000/api/stats
+```
+
+## Penjelasan Konsep Penting
+
+### Axum Extractors
+
+Extractor adalah cara Axum mengambil data dari request secara type-safe:
+
+```rust
+// State extractor — shared application state
+State(store): State<SharedStore>
+
+// Path extractor — URL parameters
+Path(id): Path<Uuid>
+
+// Query extractor — query string parameters
+Query(query): Query<ListQuery>
+
+// Json extractor — request body
+Json(input): Json<CreateContact>
+```
+
+Setiap extractor secara otomatis melakukan parsing dan validasi. Jika parsing gagal, Axum mengembalikan error response tanpa handler kita perlu menangani secara manual.
+
+### State Management dengan Arc
+
+```rust
+// Arc memungkinkan shared ownership across threads
+let store = Arc::new(ContactStore::new());
+
+// .with_state() membuat store tersedia di semua handlers
+Router::new()
+    .route("/api/contacts", get(list_contacts))
+    .with_state(store);
+```
+
+### RwLock vs Mutex
+
+Kita menggunakan `tokio::sync::RwLock` daripada `Mutex` karena:
+
+- **RwLock** — multiple readers OR single writer. Cocok untuk read-heavy workloads
+- **Mutex** — single accessor at a time. Simpler tapi bisa jadi bottleneck
+
+```rust
+// Multiple requests bisa baca bersamaan
+let contacts = self.contacts.read().await;
+
+// Hanya satu request bisa menulis
+let mut contacts = self.contacts.write().await;
+```
+
+### Tower Middleware
+
+Axum menggunakan Tower ecosystem untuk middleware:
+
+```rust
+// CORS — mengizinkan cross-origin requests
+let cors = CorsLayer::new()
+    .allow_origin(Any)
+    .allow_methods(Any)
+    .allow_headers(Any);
+
+// Tracing — logging setiap request
+let trace = TraceLayer::new_for_http();
+
+// Pasang middleware ke router
+Router::new()
+    .layer(cors)
+    .layer(trace)
+```
+
+## Diagram Arsitektur
+
+```
+Client (curl/browser/frontend)
+    |
+    v
+[Axum Router] -- middleware --> [CORS] --> [Tracing]
+    |
+    |-- GET  /health          --> health_check()
+    |-- GET  /api/stats       --> get_stats()
+    |-- GET  /api/contacts    --> list_contacts()
+    |-- POST /api/contacts    --> create_contact()
+    |-- GET  /api/contacts/id --> get_contact()
+    |-- PUT  /api/contacts/id --> update_contact()
+    |-- DEL  /api/contacts/id --> delete_contact()
+    |
+    v
+[Handlers] -- extract State --> [ContactStore]
+                                     |
+                                     v
+                              [RwLock HashMap]
+                              (in-memory storage)
+```
+
+## Extensi Lanjutan
+
+Beberapa ide untuk mengembangkan project ini lebih lanjut:
+
+1. **Database** — Ganti in-memory store dengan SQLx + PostgreSQL
+2. **Authentication** — Tambahkan JWT auth middleware
+3. **Validation** — Gunakan crate `validator` untuk validasi yang lebih robust
+4. **Testing** — Tambahkan integration tests dengan `axum::test`
+5. **OpenAPI** — Generate API docs dengan `utoipa`
+6. **Rate Limiting** — Tambahkan rate limiter dengan `tower-governor`
+7. **Caching** — Implementasi Redis caching layer
+8. **WebSocket** — Tambahkan real-time updates
+
+## Bank Soal
+
+### Soal 1 — Tambahkan Endpoint Search by Company (Sedang)
+
+Buat endpoint `GET /api/contacts/company/:name` yang mengembalikan semua contacts dari company tertentu.
+
+**Jawaban:**
+
+```rust
+// Di handlers.rs, tambahkan:
+pub async fn get_by_company(
+    State(store): State<SharedStore>,
+    Path(company_name): Path<String>,
+) -> Result<Json<ApiResponse<Vec<serde_json::Value>>>, ApiError> {
+    let contacts = store.contacts.read().await;
+    let matched: Vec<serde_json::Value> = contacts
+        .values()
+        .filter(|c| {
+            c.company
+                .as_ref()
+                .map(|co| co.to_lowercase().contains(&company_name.to_lowercase()))
+                .unwrap_or(false)
+        })
+        .map(|c| serde_json::to_value(c).unwrap())
+        .collect();
+
+    if matched.is_empty() {
+        return Err(ApiError::NotFound(format!(
+            "No contacts found for company '{}'",
+            company_name
+        )));
+    }
+
+    Ok(Json(ApiResponse {
+        success: true,
+        data: Some(matched),
+        message: format!("Contacts for company '{}'", company_name),
+    }))
+}
+
+// Di main.rs, tambahkan route:
+// .route("/api/contacts/company/{name}", get(handlers::get_by_company))
+```
+
+### Soal 2 — Implementasi Bulk Delete (Sedang)
+
+Buat endpoint `POST /api/contacts/bulk-delete` yang menerima array UUID dan menghapus semua contacts tersebut.
+
+**Jawaban:**
+
+```rust
+// Model untuk bulk delete request
+#[derive(Debug, Deserialize)]
+pub struct BulkDeleteRequest {
+    pub ids: Vec<Uuid>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BulkDeleteResponse {
+    pub deleted: usize,
+    pub not_found: Vec<String>,
+}
+
+// Handler
+pub async fn bulk_delete(
+    State(store): State<SharedStore>,
+    Json(input): Json<BulkDeleteRequest>,
+) -> Result<Json<ApiResponse<BulkDeleteResponse>>, ApiError> {
+    if input.ids.is_empty() {
+        return Err(ApiError::BadRequest("No IDs provided".to_string()));
+    }
+
+    let mut contacts = store.contacts.write().await;
+    let mut deleted = 0;
+    let mut not_found = Vec::new();
+
+    for id in input.ids {
+        if contacts.remove(&id).is_some() {
+            deleted += 1;
+        } else {
+            not_found.push(id.to_string());
+        }
+    }
+
+    Ok(Json(ApiResponse {
+        success: true,
+        data: Some(BulkDeleteResponse { deleted, not_found }),
+        message: format!("{} contacts deleted", deleted),
+    }))
+}
+```
+
+### Soal 3 — Tambahkan Request Logging Middleware (Sulit)
+
+Buat custom middleware yang mencatat setiap request: method, path, status code, dan duration.
+
+**Jawaban:**
+
+```rust
+use axum::{
+    middleware::Next,
+    extract::Request,
+    response::Response,
+};
+use std::time::Instant;
+
+pub async fn request_logger(
+    request: Request,
+    next: Next,
+) -> Response {
+    let method = request.method().clone();
+    let uri = request.uri().clone();
+    let start = Instant::now();
+
+    let response = next.run(request).await;
+
+    let duration = start.elapsed();
+    let status = response.status();
+
+    tracing::info!(
+        "{} {} -> {} ({:?})",
+        method,
+        uri.path(),
+        status.as_u16(),
+        duration
+    );
+
+    response
+}
+
+// Di main.rs, pasang middleware:
+// use axum::middleware;
+//
+// let app = Router::new()
+//     .route("/health", get(handlers::health_check))
+//     // ... routes lainnya
+//     .layer(middleware::from_fn(request_logger))
+//     .layer(cors)
+//     .with_state(store);
+```
+
+### Soal 4 — Implementasi Export ke JSON File (Sedang)
+
+Buat endpoint `GET /api/contacts/export` yang mengembalikan semua contacts sebagai downloadable JSON file.
+
+**Jawaban:**
+
+```rust
+use axum::response::IntoResponse;
+
+pub async fn export_contacts(
+    State(store): State<SharedStore>,
+) -> impl IntoResponse {
+    let contacts = store.contacts.read().await;
+    let all_contacts: Vec<&Contact> = contacts.values().collect();
+    let json = serde_json::to_string_pretty(&all_contacts).unwrap();
+
+    let headers = [
+        (
+            axum::http::header::CONTENT_TYPE,
+            "application/json".to_string(),
+        ),
+        (
+            axum::http::header::CONTENT_DISPOSITION,
+            "attachment; filename=\"contacts-export.json\"".to_string(),
+        ),
+    ];
+
+    (headers, json)
+}
+
+// Route: .route("/api/contacts/export", get(handlers::export_contacts))
+```
+
+### Soal 5 — Tambahkan Import dari JSON (Sulit)
+
+Buat endpoint `POST /api/contacts/import` yang menerima array contacts dan meng-import semuanya, skip yang duplikat email.
+
+**Jawaban:**
+
+```rust
+#[derive(Debug, Serialize)]
+pub struct ImportResult {
+    pub imported: usize,
+    pub skipped: usize,
+    pub errors: Vec<String>,
+}
+
+pub async fn import_contacts(
+    State(store): State<SharedStore>,
+    Json(inputs): Json<Vec<CreateContact>>,
+) -> Result<Json<ApiResponse<ImportResult>>, ApiError> {
+    if inputs.is_empty() {
+        return Err(ApiError::BadRequest("No contacts to import".to_string()));
+    }
+
+    let mut imported = 0;
+    let mut skipped = 0;
+    let mut errors = Vec::new();
+
+    for (i, input) in inputs.into_iter().enumerate() {
+        match store.create(input).await {
+            Ok(_) => imported += 1,
+            Err(ApiError::Conflict(msg)) => {
+                skipped += 1;
+                errors.push(format!("Row {}: {}", i + 1, msg));
+            }
+            Err(ApiError::BadRequest(msg)) => {
+                skipped += 1;
+                errors.push(format!("Row {}: {}", i + 1, msg));
+            }
+            Err(e) => {
+                errors.push(format!("Row {}: {}", i + 1, e));
+            }
+        }
+    }
+
+    Ok(Json(ApiResponse {
+        success: true,
+        data: Some(ImportResult {
+            imported,
+            skipped,
+            errors,
+        }),
+        message: format!(
+            "{} imported, {} skipped",
+            imported, skipped
+        ),
+    }))
+}
+
+// Route: .route("/api/contacts/import", post(handlers::import_contacts))
+```
+
+### Soal 6 — Implementasi Rate Limiting Sederhana (Sulit)
+
+Buat middleware rate limiter sederhana yang membatasi 100 request per menit per IP.
+
+**Jawaban:**
+
+```rust
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio::sync::Mutex;
+use axum::{
+    extract::ConnectInfo,
+    middleware::Next,
+    extract::Request,
+    response::{IntoResponse, Response},
+    http::StatusCode,
+    Json,
+};
+use std::net::SocketAddr;
+
+#[derive(Clone)]
+pub struct RateLimiter {
+    requests: Arc<Mutex<HashMap<String, Vec<Instant>>>>,
+    max_requests: usize,
+    window: Duration,
+}
+
+impl RateLimiter {
+    pub fn new(max_requests: usize, window_secs: u64) -> Self {
+        Self {
+            requests: Arc::new(Mutex::new(HashMap::new())),
+            max_requests,
+            window: Duration::from_secs(window_secs),
+        }
+    }
+}
+
+pub async fn rate_limit(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    State(limiter): State<RateLimiter>,
+    request: Request,
+    next: Next,
+) -> Result<Response, Response> {
+    let ip = addr.ip().to_string();
+    let now = Instant::now();
+
+    let mut requests = limiter.requests.lock().await;
+    let entry = requests.entry(ip).or_insert_with(Vec::new);
+
+    // Hapus request yang sudah di luar window
+    entry.retain(|t| now.duration_since(*t) < limiter.window);
+
+    if entry.len() >= limiter.max_requests {
+        let body = serde_json::json!({
+            "success": false,
+            "error": "Too many requests. Please try again later.",
+        });
+        return Err((StatusCode::TOO_MANY_REQUESTS, Json(body)).into_response());
+    }
+
+    entry.push(now);
+    drop(requests);
+
+    Ok(next.run(request).await)
+}
+
+// Penggunaan di main.rs:
+// let limiter = RateLimiter::new(100, 60);
+// .layer(middleware::from_fn_with_state(
+//     limiter,
+//     rate_limit,
+// ))
+```
+
+## Kesimpulan
+
+Selamat! Kamu telah berhasil membangun REST API yang production-ready dengan Rust dan Axum. Project ini mencakup banyak konsep penting:
+
+- **Axum routing dan extractors** untuk type-safe HTTP handling
+- **Shared state** dengan Arc untuk concurrent access
+- **RwLock** untuk read-write locking yang efisien
+- **Custom error types** dengan IntoResponse trait
+- **Tower middleware** untuk cross-cutting concerns
+- **Serde** untuk serialization/deserialization
+- **Async/await** dengan Tokio runtime
+
+Dengan fondasi ini, kamu bisa mengembangkan API yang lebih kompleks — tambahkan database layer, authentication, WebSocket, dan fitur lainnya. Selamat belajar Rust!

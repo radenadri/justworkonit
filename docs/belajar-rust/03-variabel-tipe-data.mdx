@@ -1,0 +1,522 @@
+# Variabel & Tipe Data
+
+## Variabel — let, mut, const
+
+### Immutable by Default
+
+Di Rust, variabel bersifat **immutable** (tidak bisa diubah) secara default:
+
+```rust
+fn main() {
+    let x = 5;
+    println!("x = {x}");
+
+    // x = 10; // ❌ Error: cannot assign twice to immutable variable
+}
+```
+
+### Mutable Variables
+
+Gunakan keyword `mut` untuk membuat variabel yang bisa diubah:
+
+```rust
+fn main() {
+    let mut x = 5;
+    println!("x = {x}"); // 5
+
+    x = 10; // ✅ OK karena mut
+    println!("x = {x}"); // 10
+}
+```
+
+### Constants
+
+`const` adalah nilai yang BENAR-BENAR tidak pernah berubah. Harus di-annotate tipe-nya:
+
+```rust
+const MAX_POINTS: u32 = 100_000;
+const PI: f64 = 3.14159265358979;
+const APP_NAME: &str = "Belajar Rust";
+
+fn main() {
+    println!("Max: {MAX_POINTS}");
+    println!("Pi: {PI}");
+    println!("App: {APP_NAME}");
+}
+```
+
+| Perbedaan | `let` | `let mut` | `const` |
+|-----------|-------|-----------|---------|
+| Mutable? | Tidak | Ya | Tidak (selamanya) |
+| Type annotation | Opsional | Opsional | Wajib |
+| Bisa shadowing? | Ya | Ya | Tidak |
+| Scope | Block | Block | Global atau block |
+| Computed at | Runtime | Runtime | Compile time |
+
+### Static Variables
+
+`static` mirip `const` tapi memiliki fixed memory address:
+
+```rust
+static LANGUAGE: &str = "Rust";
+static mut COUNTER: i32 = 0; // ⚠️ Unsafe — jarang dipakai
+
+fn main() {
+    println!("{LANGUAGE}");
+}
+```
+
+### Shadowing
+
+Rust mengizinkan **shadowing** — mendeklarasi ulang variabel dengan nama yang sama:
+
+```rust
+fn main() {
+    let x = 5;
+    let x = x + 1;       // Shadow: x sekarang 6
+    let x = x * 2;       // Shadow: x sekarang 12
+    println!("x = {x}"); // 12
+
+    // Shadowing bisa mengubah tipe!
+    let spaces = "   ";           // &str
+    let spaces = spaces.len();    // usize — tipe berbeda, nama sama
+    println!("spaces = {spaces}");
+}
+```
+
+**Shadowing vs mut:**
+- `mut` — mengubah value, tipe tetap sama
+- Shadowing — membuat variabel baru, bisa tipe berbeda
+
+## Tipe Data Scalar
+
+Scalar types merepresentasikan satu nilai tunggal.
+
+### Integer Types
+
+| Tipe | Ukuran | Range |
+|------|--------|-------|
+| `i8` | 8 bit | -128 to 127 |
+| `i16` | 16 bit | -32,768 to 32,767 |
+| `i32` | 32 bit | -2.1 miliar to 2.1 miliar |
+| `i64` | 64 bit | ±9.2 × 10¹⁸ |
+| `i128` | 128 bit | Sangat besar |
+| `isize` | arsitektur | Tergantung 32/64-bit |
+| `u8` | 8 bit | 0 to 255 |
+| `u16` | 16 bit | 0 to 65,535 |
+| `u32` | 32 bit | 0 to 4.2 miliar |
+| `u64` | 64 bit | 0 to 18.4 × 10¹⁸ |
+| `u128` | 128 bit | Sangat besar |
+| `usize` | arsitektur | Tergantung 32/64-bit |
+
+```rust
+fn main() {
+    let a: i32 = 42;           // Default integer type
+    let b: u8 = 255;           // Unsigned 8-bit
+    let c: i64 = 1_000_000;    // Underscore as separator
+    let d = 0xff;              // Hex
+    let e = 0o77;              // Octal
+    let f = 0b1111_0000;       // Binary
+    let g: u8 = b'A';          // Byte (u8) — ASCII value of 'A' = 65
+
+    println!("{a} {b} {c} {d} {e} {f} {g}");
+}
+```
+
+### Floating Point
+
+```rust
+fn main() {
+    let x = 2.0;      // f64 (default)
+    let y: f32 = 3.0;  // f32
+
+    println!("{x} {y}");
+}
+```
+
+| Tipe | Ukuran | Presisi |
+|------|--------|---------|
+| `f32` | 32 bit | ~6-7 digit |
+| `f64` | 64 bit | ~15-16 digit (default) |
+
+### Boolean
+
+```rust
+fn main() {
+    let aktif: bool = true;
+    let selesai = false;
+
+    println!("aktif: {aktif}, selesai: {selesai}");
+}
+```
+
+### Character
+
+`char` di Rust adalah **4 bytes** (Unicode Scalar Value), bukan hanya ASCII:
+
+```rust
+fn main() {
+    let c = 'z';
+    let emoji = '🦀';        // Rust mascot: Ferris the crab!
+    let aksara = 'ñ';
+    let hangul = '한';
+
+    println!("{c} {emoji} {aksara} {hangul}");
+}
+```
+
+## Tipe Data Compound
+
+### Tuple
+
+Tuple mengelompokkan beberapa nilai dengan tipe berbeda:
+
+```rust
+fn main() {
+    // Deklarasi tuple
+    let tup: (i32, f64, bool) = (500, 6.4, true);
+
+    // Destructuring
+    let (x, y, z) = tup;
+    println!("x={x}, y={y}, z={z}");
+
+    // Akses via index (dot notation)
+    let first = tup.0;
+    let second = tup.1;
+    println!("first={first}, second={second}");
+
+    // Unit tuple (empty tuple)
+    let unit: () = ();
+    println!("{:?}", unit); // ()
+}
+```
+
+### Array
+
+Array memiliki ukuran tetap (fixed-size) dan semua elemen bertipe sama:
+
+```rust
+fn main() {
+    // Deklarasi array
+    let arr = [1, 2, 3, 4, 5];
+
+    // Dengan type annotation
+    let arr2: [i32; 5] = [1, 2, 3, 4, 5];
+
+    // Array dengan nilai yang sama
+    let zeros = [0; 10]; // [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+    // Akses elemen
+    let first = arr[0];
+    let last = arr[4];
+    println!("first={first}, last={last}");
+
+    // Length
+    println!("length: {}", arr.len());
+
+    // Slice
+    let slice = &arr[1..3]; // [2, 3]
+    println!("slice: {:?}", slice);
+
+    // Iterasi
+    for item in arr.iter() {
+        print!("{item} ");
+    }
+    println!();
+
+    // ⚠️ Index out of bounds = PANIC at runtime
+    // let crash = arr[10]; // thread 'main' panicked!
+
+    println!("{:?} {:?}", arr2, zeros);
+}
+```
+
+## String vs &str
+
+Ini adalah salah satu konsep yang paling membingungkan bagi pemula Rust:
+
+| Aspek | `String` | `&str` |
+|-------|----------|--------|
+| Tipe | Owned, heap-allocated | Borrowed, reference |
+| Mutability | Bisa `mut` | Immutable |
+| Size | Bisa grow/shrink | Fixed |
+| Memory | Heap | Stack/static/heap |
+| Analogi | `String` di Java | String literal |
+
+```rust
+fn main() {
+    // &str — string slice (reference)
+    let literal: &str = "Hello";    // Stored in binary, stack reference
+
+    // String — owned, heap-allocated
+    let owned: String = String::from("Hello");
+    let also_owned: String = "Hello".to_string();
+
+    // &str → String
+    let s: String = literal.to_string();
+    let s2: String = String::from(literal);
+
+    // String → &str
+    let slice: &str = &owned;
+    let slice2: &str = owned.as_str();
+
+    println!("{literal} {owned} {also_owned} {s} {s2} {slice} {slice2}");
+}
+```
+
+## Type Inference vs Explicit Annotation
+
+Rust memiliki type inference yang kuat — compiler bisa menebak tipe variabel:
+
+```rust
+fn main() {
+    // Type inference
+    let x = 42;          // i32 (default integer)
+    let y = 3.14;        // f64 (default float)
+    let z = true;        // bool
+    let s = "hello";     // &str
+
+    // Explicit annotation (kadang diperlukan)
+    let a: i64 = 42;
+    let b: f32 = 3.14;
+    let c: Vec<i32> = Vec::new(); // Compiler butuh tahu tipe elemen
+
+    // Turbofish syntax
+    let parsed = "42".parse::<i32>().unwrap();
+    println!("{parsed}");
+
+    println!("{x} {y} {z} {s} {a} {b} {c:?}");
+}
+```
+
+## Konversi Tipe (Type Casting)
+
+```rust
+fn main() {
+    // as keyword untuk casting
+    let x: i32 = 42;
+    let y: f64 = x as f64;
+    let z: u8 = x as u8;
+
+    // ⚠️ Hati-hati dengan overflow
+    let big: i32 = 300;
+    let small: u8 = big as u8; // 44 (wraps around!)
+    println!("300 as u8 = {small}");
+
+    // try_from / try_into untuk safe conversion
+    let safe: Result<u8, _> = u8::try_from(big);
+    match safe {
+        Ok(v) => println!("Converted: {v}"),
+        Err(e) => println!("Error: {e}"),
+    }
+
+    println!("{y} {z}");
+}
+```
+
+---
+
+## Bank Soal
+
+### Soal 1 — Deklarasi Variabel (Mudah)
+
+Deklarasikan variabel berikut dan cetak semuanya:
+- Nama (String): "Ferris"
+- Umur (integer): 9
+- Tinggi (float): 0.5
+- Aktif (boolean): true
+
+**Jawaban:**
+
+```rust
+fn main() {
+    let nama = "Ferris";
+    let umur: i32 = 9;
+    let tinggi: f64 = 0.5;
+    let aktif = true;
+
+    println!("Nama: {nama}");
+    println!("Umur: {umur}");
+    println!("Tinggi: {tinggi}");
+    println!("Aktif: {aktif}");
+}
+```
+
+### Soal 2 — Shadowing (Mudah)
+
+Apa output dari kode berikut?
+
+```rust
+fn main() {
+    let x = 5;
+    let x = x + 1;
+    {
+        let x = x * 2;
+        println!("Inner: {x}");
+    }
+    println!("Outer: {x}");
+}
+```
+
+**Jawaban:** Inner: 12, Outer: 6
+
+### Soal 3 — Tuple Destructuring (Mudah)
+
+Buat fungsi yang menerima dua `i32` dan mengembalikan tuple berisi `(penjumlahan, perkalian, rata_rata)`:
+
+**Jawaban:**
+
+```rust
+fn hitung(a: i32, b: i32) -> (i32, i32, f64) {
+    let sum = a + b;
+    let product = a * b;
+    let avg = (a + b) as f64 / 2.0;
+    (sum, product, avg)
+}
+
+fn main() {
+    let (sum, product, avg) = hitung(10, 20);
+    println!("Sum: {sum}, Product: {product}, Average: {avg}");
+}
+```
+
+### Soal 4 — Array Operations (Sedang)
+
+Buat program yang:
+1. Membuat array berisi 10 angka
+2. Menghitung jumlah semua elemen
+3. Mencari nilai terbesar
+4. Mencari nilai terkecil
+
+**Jawaban:**
+
+```rust
+fn main() {
+    let numbers = [23, 45, 12, 67, 34, 89, 1, 56, 78, 90];
+
+    let mut sum = 0;
+    let mut max = numbers[0];
+    let mut min = numbers[0];
+
+    for &num in numbers.iter() {
+        sum += num;
+        if num > max {
+            max = num;
+        }
+        if num < min {
+            min = num;
+        }
+    }
+
+    println!("Array: {:?}", numbers);
+    println!("Sum: {sum}");
+    println!("Max: {max}");
+    println!("Min: {min}");
+    println!("Avg: {:.2}", sum as f64 / numbers.len() as f64);
+}
+```
+
+### Soal 5 — Type Conversion (Sedang)
+
+Buat program yang mengonversi suhu dari Celsius ke Fahrenheit dan sebaliknya. Gunakan tipe `f64`:
+
+Formula: `F = C * 9/5 + 32` dan `C = (F - 32) * 5/9`
+
+**Jawaban:**
+
+```rust
+fn celsius_to_fahrenheit(c: f64) -> f64 {
+    c * 9.0 / 5.0 + 32.0
+}
+
+fn fahrenheit_to_celsius(f: f64) -> f64 {
+    (f - 32.0) * 5.0 / 9.0
+}
+
+fn main() {
+    let celsius = 100.0;
+    let fahrenheit = 212.0;
+
+    println!("{celsius}°C = {:.1}°F", celsius_to_fahrenheit(celsius));
+    println!("{fahrenheit}°F = {:.1}°C", fahrenheit_to_celsius(fahrenheit));
+}
+```
+
+### Soal 6 — String Manipulation (Sedang)
+
+Buat program yang menerima sebuah string dan mengembalikan string yang sudah di-reverse:
+
+**Jawaban:**
+
+```rust
+fn reverse_string(s: &str) -> String {
+    s.chars().rev().collect()
+}
+
+fn main() {
+    let original = "Hello, Rust!";
+    let reversed = reverse_string(original);
+    println!("Original: {original}");
+    println!("Reversed: {reversed}");
+}
+```
+
+### Soal 7 — Compile Error Detective (Sulit)
+
+Tentukan mana yang compile dan mana yang error. Jelaskan alasannya:
+
+```rust
+fn main() {
+    // A
+    let x = 5;
+    let y: i64 = x;
+
+    // B
+    let a: i32 = 5;
+    let b: i64 = a;
+
+    // C
+    let mut s = "hello";
+    s = "world";
+
+    // D
+    let mut s = String::from("hello");
+    s = String::from("world");
+}
+```
+
+**Jawaban:**
+
+- **A** — ✅ Compile. `x` di-infer sebagai `i64` karena digunakan sebagai `i64`.
+- **B** — ❌ Error. `a` sudah di-annotate sebagai `i32`, tidak bisa implicit cast ke `i64`. Fix: `let b: i64 = a as i64;`
+- **C** — ✅ Compile. `s` adalah `&str`, reassign ke `&str` lain. Bukan mutasi string, tapi mutasi pointer.
+- **D** — ✅ Compile. `s` adalah `String`, reassign ke `String` baru. Value lama di-drop.
+
+### Soal 8 — Matrix dengan Array (Sulit)
+
+Buat matrix 3x3 menggunakan array nested, lalu hitung jumlah diagonal utamanya:
+
+**Jawaban:**
+
+```rust
+fn main() {
+    let matrix: [[i32; 3]; 3] = [
+        [1, 2, 3],
+        [4, 5, 6],
+        [7, 8, 9],
+    ];
+
+    // Print matrix
+    println!("Matrix:");
+    for row in &matrix {
+        println!("  {:?}", row);
+    }
+
+    // Sum diagonal
+    let mut diagonal_sum = 0;
+    for i in 0..3 {
+        diagonal_sum += matrix[i][i];
+    }
+    println!("Diagonal sum: {diagonal_sum}"); // 1 + 5 + 9 = 15
+}
+```

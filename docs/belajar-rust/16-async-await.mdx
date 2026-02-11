@@ -1,0 +1,798 @@
+# Async/Await
+
+Rust mendukung asynchronous programming melalui `async`/`.await` syntax yang memungkinkan kita menulis kode concurrent tanpa overhead thread OS. Berbeda dengan bahasa lain, async di Rust adalah **zero-cost abstraction** — compiler mengubah async function menjadi state machine yang efisien.
+
+## Konsep Dasar Async
+
+### Future Trait
+
+Semua async operation di Rust menghasilkan tipe yang mengimplementasikan trait `Future`. Sebuah `Future` merepresentasikan nilai yang **belum tersedia** tapi akan tersedia di masa depan.
+
+```rust
+use std::future::Future;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+
+// Secara konseptual, Future bekerja seperti ini:
+// trait Future {
+//     type Output;
+//     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output>;
+// }
+
+// Poll::Ready(value) — future selesai dengan value
+// Poll::Pending — future belum selesai, akan di-poll lagi nanti
+```
+
+### Async Function
+
+Keyword `async fn` membuat function yang mengembalikan `Future`:
+
+```rust
+// async fn secara otomatis mengembalikan impl Future<Output = T>
+async fn fetch_data() -> String {
+    // simulasi async operation
+    "data from server".to_string()
+}
+
+// Equivalent tanpa async sugar:
+// fn fetch_data() -> impl Future<Output = String> {
+//     async {
+//         "data from server".to_string()
+//     }
+// }
+```
+
+### Await
+
+`.await` digunakan untuk menunggu Future selesai. Penting: `.await` **tidak memblokir thread** — ia menyerahkan kontrol kembali ke runtime.
+
+```rust
+async fn process() {
+    let data = fetch_data().await; // tunggu sampai selesai
+    println!("Got: {}", data);
+}
+```
+
+## Tokio Runtime
+
+Rust tidak memiliki built-in async runtime. Kita perlu runtime eksternal, dan **Tokio** adalah yang paling populer.
+
+### Setup Tokio
+
+Tambahkan di `Cargo.toml`:
+
+```toml
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+```
+
+### Menjalankan Async Code
+
+```rust
+use tokio;
+
+async fn hello() -> String {
+    "Hello, async world!".to_string()
+}
+
+#[tokio::main]
+async fn main() {
+    let result = hello().await;
+    println!("{}", result);
+}
+```
+
+`#[tokio::main]` adalah macro yang mengubah `async fn main()` menjadi synchronous main yang menjalankan Tokio runtime.
+
+### Runtime Manual
+
+```rust
+fn main() {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        println!("Running inside tokio runtime");
+    });
+}
+```
+
+## Tokio Spawn — Concurrent Tasks
+
+`tokio::spawn` menjalankan Future sebagai task independen di runtime:
+
+```rust
+use tokio::time::{sleep, Duration};
+
+async fn task_a() {
+    for i in 1..=3 {
+        println!("Task A: step {}", i);
+        sleep(Duration::from_millis(500)).await;
+    }
+}
+
+async fn task_b() {
+    for i in 1..=3 {
+        println!("Task B: step {}", i);
+        sleep(Duration::from_millis(300)).await;
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    // Spawn tasks — berjalan concurrent
+    let handle_a = tokio::spawn(task_a());
+    let handle_b = tokio::spawn(task_b());
+
+    // Tunggu keduanya selesai
+    handle_a.await.unwrap();
+    handle_b.await.unwrap();
+
+    println!("Both tasks completed");
+}
+```
+
+Output akan interleaved karena kedua task berjalan concurrent.
+
+## Join dan Select
+
+### tokio::join! — Tunggu Semua
+
+`join!` menjalankan multiple futures secara concurrent dan menunggu **semua** selesai:
+
+```rust
+use tokio::time::{sleep, Duration};
+
+async fn fetch_users() -> Vec<String> {
+    sleep(Duration::from_secs(2)).await;
+    vec!["Alice".into(), "Bob".into()]
+}
+
+async fn fetch_posts() -> Vec<String> {
+    sleep(Duration::from_secs(1)).await;
+    vec!["Post 1".into(), "Post 2".into()]
+}
+
+async fn fetch_comments() -> Vec<String> {
+    sleep(Duration::from_secs(3)).await;
+    vec!["Comment 1".into()]
+}
+
+#[tokio::main]
+async fn main() {
+    // Semua berjalan concurrent — total waktu ~3 detik, bukan 6
+    let (users, posts, comments) = tokio::join!(
+        fetch_users(),
+        fetch_posts(),
+        fetch_comments()
+    );
+
+    println!("Users: {:?}", users);
+    println!("Posts: {:?}", posts);
+    println!("Comments: {:?}", comments);
+}
+```
+
+### tokio::select! — Tunggu Salah Satu
+
+`select!` menunggu **salah satu** future yang selesai duluan:
+
+```rust
+use tokio::time::{sleep, Duration};
+
+async fn fast_api() -> String {
+    sleep(Duration::from_secs(1)).await;
+    "fast response".to_string()
+}
+
+async fn slow_api() -> String {
+    sleep(Duration::from_secs(5)).await;
+    "slow response".to_string()
+}
+
+#[tokio::main]
+async fn main() {
+    tokio::select! {
+        result = fast_api() => {
+            println!("Fast API won: {}", result);
+        }
+        result = slow_api() => {
+            println!("Slow API won: {}", result);
+        }
+    }
+    // Output: "Fast API won: fast response"
+    // slow_api di-cancel otomatis
+}
+```
+
+### Timeout Pattern
+
+```rust
+use tokio::time::{timeout, Duration};
+
+async fn slow_operation() -> String {
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    "done".to_string()
+}
+
+#[tokio::main]
+async fn main() {
+    match timeout(Duration::from_secs(3), slow_operation()).await {
+        Ok(result) => println!("Got: {}", result),
+        Err(_) => println!("Operation timed out!"),
+    }
+}
+```
+
+## Async Channels
+
+Tokio menyediakan channel untuk komunikasi antar async tasks.
+
+### mpsc — Multiple Producer, Single Consumer
+
+```rust
+use tokio::sync::mpsc;
+
+#[tokio::main]
+async fn main() {
+    let (tx, mut rx) = mpsc::channel::<String>(32); // buffer size 32
+
+    // Producer 1
+    let tx1 = tx.clone();
+    tokio::spawn(async move {
+        for i in 1..=3 {
+            tx1.send(format!("Producer 1: message {}", i)).await.unwrap();
+        }
+    });
+
+    // Producer 2
+    tokio::spawn(async move {
+        for i in 1..=3 {
+            tx.send(format!("Producer 2: message {}", i)).await.unwrap();
+        }
+    });
+
+    // Consumer
+    while let Some(msg) = rx.recv().await {
+        println!("Received: {}", msg);
+    }
+}
+```
+
+### oneshot — Single Value
+
+```rust
+use tokio::sync::oneshot;
+
+#[tokio::main]
+async fn main() {
+    let (tx, rx) = oneshot::channel::<String>();
+
+    tokio::spawn(async move {
+        let result = "computation result".to_string();
+        tx.send(result).unwrap();
+    });
+
+    let value = rx.await.unwrap();
+    println!("Got: {}", value);
+}
+```
+
+## HTTP Request dengan Reqwest
+
+`reqwest` adalah HTTP client populer yang mendukung async:
+
+```toml
+[dependencies]
+reqwest = { version = "0.11", features = ["json"] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+```
+
+```rust
+use serde::Deserialize;
+
+#[derive(Debug, Deserialize)]
+struct Todo {
+    #[serde(rename = "userId")]
+    user_id: u32,
+    id: u32,
+    title: String,
+    completed: bool,
+}
+
+async fn fetch_todo(id: u32) -> Result<Todo, reqwest::Error> {
+    let url = format!("https://jsonplaceholder.typicode.com/todos/{}", id);
+    let todo = reqwest::get(&url).await?.json::<Todo>().await?;
+    Ok(todo)
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Fetch single todo
+    let todo = fetch_todo(1).await?;
+    println!("Todo: {:?}", todo);
+
+    // Fetch multiple concurrent
+    let handles: Vec<_> = (1..=5)
+        .map(|id| tokio::spawn(fetch_todo(id)))
+        .collect();
+
+    for handle in handles {
+        match handle.await? {
+            Ok(todo) => println!("  #{}: {} [{}]",
+                todo.id, todo.title,
+                if todo.completed { "done" } else { "pending" }
+            ),
+            Err(e) => eprintln!("  Error: {}", e),
+        }
+    }
+
+    Ok(())
+}
+```
+
+## Error Handling dalam Async
+
+### Propagation dengan ?
+
+```rust
+use std::fmt;
+
+#[derive(Debug)]
+enum AppError {
+    Network(reqwest::Error),
+    Parse(serde_json::Error),
+    Timeout,
+}
+
+impl fmt::Display for AppError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AppError::Network(e) => write!(f, "Network error: {}", e),
+            AppError::Parse(e) => write!(f, "Parse error: {}", e),
+            AppError::Timeout => write!(f, "Operation timed out"),
+        }
+    }
+}
+
+impl std::error::Error for AppError {}
+
+impl From<reqwest::Error> for AppError {
+    fn from(e: reqwest::Error) -> Self {
+        AppError::Network(e)
+    }
+}
+
+async fn fetch_with_retry(url: &str, max_retries: u32) -> Result<String, AppError> {
+    let mut last_error = None;
+
+    for attempt in 1..=max_retries {
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            reqwest::get(url),
+        ).await {
+            Ok(Ok(response)) => return Ok(response.text().await?),
+            Ok(Err(e)) => {
+                eprintln!("Attempt {}: {}", attempt, e);
+                last_error = Some(AppError::Network(e));
+            }
+            Err(_) => {
+                eprintln!("Attempt {}: timeout", attempt);
+                last_error = Some(AppError::Timeout);
+            }
+        }
+
+        if attempt < max_retries {
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+    }
+
+    Err(last_error.unwrap())
+}
+```
+
+### Handling JoinHandle Errors
+
+```rust
+#[tokio::main]
+async fn main() {
+    let handle = tokio::spawn(async {
+        // Task yang mungkin panic
+        panic!("oops!");
+    });
+
+    match handle.await {
+        Ok(()) => println!("Task completed"),
+        Err(e) => {
+            if e.is_panic() {
+                println!("Task panicked!");
+            } else if e.is_cancelled() {
+                println!("Task was cancelled");
+            }
+        }
+    }
+}
+```
+
+## Async dan Lifetime
+
+Async functions bisa tricky dengan references:
+
+```rust
+// Ini TIDAK compile — reference harus hidup selama Future
+// async fn bad_ref(data: &Vec<String>) -> &str {
+//     &data[0]
+// }
+
+// Solusi 1: Return owned value
+async fn get_first(data: &[String]) -> String {
+    data[0].clone()
+}
+
+// Solusi 2: Explicit lifetime
+async fn get_ref<'a>(data: &'a [String]) -> &'a str {
+    &data[0]
+}
+
+#[tokio::main]
+async fn main() {
+    let data = vec!["hello".to_string(), "world".to_string()];
+
+    let first = get_first(&data).await;
+    println!("{}", first);
+
+    let reference = get_ref(&data).await;
+    println!("{}", reference);
+}
+```
+
+## Studi Kasus: Concurrent Web Scraper
+
+Membangun scraper yang mengambil data dari multiple URL secara concurrent dengan rate limiting:
+
+```rust
+use std::time::Instant;
+use tokio::sync::Semaphore;
+use std::sync::Arc;
+
+async fn fetch_url(url: &str) -> Result<(String, usize), String> {
+    let response = reqwest::get(url)
+        .await
+        .map_err(|e| format!("Failed to fetch {}: {}", url, e))?;
+
+    let status = response.status().to_string();
+    let body = response.text()
+        .await
+        .map_err(|e| format!("Failed to read body: {}", e))?;
+
+    Ok((status, body.len()))
+}
+
+async fn scrape_with_limit(
+    urls: Vec<String>,
+    max_concurrent: usize,
+) -> Vec<Result<(String, String, usize), String>> {
+    let semaphore = Arc::new(Semaphore::new(max_concurrent));
+    let mut handles = vec![];
+
+    for url in urls {
+        let sem = semaphore.clone();
+        let handle = tokio::spawn(async move {
+            // Acquire permit — blocks if at limit
+            let _permit = sem.acquire().await.unwrap();
+            println!("Fetching: {}", url);
+            match fetch_url(&url).await {
+                Ok((status, size)) => Ok((url, status, size)),
+                Err(e) => Err(e),
+            }
+        });
+        handles.push(handle);
+    }
+
+    let mut results = vec![];
+    for handle in handles {
+        match handle.await {
+            Ok(result) => results.push(result),
+            Err(e) => results.push(Err(format!("Task panicked: {}", e))),
+        }
+    }
+    results
+}
+
+#[tokio::main]
+async fn main() {
+    let urls = vec![
+        "https://httpbin.org/get".to_string(),
+        "https://httpbin.org/ip".to_string(),
+        "https://httpbin.org/user-agent".to_string(),
+        "https://httpbin.org/headers".to_string(),
+        "https://httpbin.org/delay/1".to_string(),
+    ];
+
+    let start = Instant::now();
+    let results = scrape_with_limit(urls, 3).await; // max 3 concurrent
+
+    for result in &results {
+        match result {
+            Ok((url, status, size)) => {
+                println!("  {} — {} ({} bytes)", url, status, size);
+            }
+            Err(e) => println!("  Error: {}", e),
+        }
+    }
+
+    let success = results.iter().filter(|r| r.is_ok()).count();
+    let failed = results.iter().filter(|r| r.is_err()).count();
+    println!("\nTotal: {} success, {} failed in {:.2?}",
+        success, failed, start.elapsed());
+}
+```
+
+## Bank Soal
+
+### Soal 1 — Async Hello World (Mudah)
+
+Buat async function `greet` yang menerima `name: &str` dan return greeting string. Panggil dari `main` menggunakan Tokio.
+
+**Jawaban:**
+
+```rust
+use tokio;
+
+async fn greet(name: &str) -> String {
+    format!("Hello, {}! Welcome to async Rust.", name)
+}
+
+#[tokio::main]
+async fn main() {
+    let message = greet("Rustacean").await;
+    println!("{}", message);
+}
+```
+
+### Soal 2 — Concurrent Timers (Mudah)
+
+Buat dua async function: `timer_short` (sleep 1 detik, return "short") dan `timer_long` (sleep 3 detik, return "long"). Jalankan keduanya concurrent dengan `tokio::join!` dan cetak total waktu.
+
+**Jawaban:**
+
+```rust
+use tokio::time::{sleep, Duration, Instant};
+
+async fn timer_short() -> &'static str {
+    sleep(Duration::from_secs(1)).await;
+    "short"
+}
+
+async fn timer_long() -> &'static str {
+    sleep(Duration::from_secs(3)).await;
+    "long"
+}
+
+#[tokio::main]
+async fn main() {
+    let start = Instant::now();
+    let (short, long) = tokio::join!(timer_short(), timer_long());
+    let elapsed = start.elapsed();
+
+    println!("{} and {} completed in {:.2?}", short, long, elapsed);
+    // Total ~3 detik, bukan 4 detik
+    assert!(elapsed.as_secs() < 4);
+}
+```
+
+### Soal 3 — Channel Counter (Sedang)
+
+Gunakan `mpsc` channel: spawn 5 producer tasks, masing-masing mengirim angka 1-10. Consumer menjumlahkan semua angka dan mencetak total (seharusnya 275).
+
+**Jawaban:**
+
+```rust
+use tokio::sync::mpsc;
+
+#[tokio::main]
+async fn main() {
+    let (tx, mut rx) = mpsc::channel::<i32>(100);
+
+    for producer_id in 1..=5 {
+        let tx = tx.clone();
+        tokio::spawn(async move {
+            for num in 1..=10 {
+                tx.send(num).await.unwrap();
+            }
+            println!("Producer {} done", producer_id);
+        });
+    }
+
+    // Drop original sender supaya channel bisa close
+    drop(tx);
+
+    let mut total = 0;
+    while let Some(value) = rx.recv().await {
+        total += value;
+    }
+
+    println!("Total: {}", total);
+    assert_eq!(total, 275); // 5 producers x (1+2+...+10) = 5 x 55 = 275
+}
+```
+
+### Soal 4 — Timeout dengan Fallback (Sedang)
+
+Buat function `fetch_with_timeout` yang mencoba menjalankan async operation. Jika timeout 2 detik, return fallback value "default data".
+
+**Jawaban:**
+
+```rust
+use tokio::time::{timeout, sleep, Duration};
+
+async fn slow_fetch() -> String {
+    sleep(Duration::from_secs(5)).await;
+    "real data".to_string()
+}
+
+async fn fast_fetch() -> String {
+    sleep(Duration::from_millis(500)).await;
+    "real data".to_string()
+}
+
+async fn fetch_with_timeout<F, Fut>(
+    operation: F,
+    timeout_secs: u64,
+    fallback: &str,
+) -> String
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = String>,
+{
+    match timeout(Duration::from_secs(timeout_secs), operation()).await {
+        Ok(result) => result,
+        Err(_) => {
+            eprintln!("Timeout! Using fallback.");
+            fallback.to_string()
+        }
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    // Ini akan timeout
+    let result = fetch_with_timeout(slow_fetch, 2, "default data").await;
+    println!("Slow: {}", result); // "default data"
+
+    // Ini akan berhasil
+    let result = fetch_with_timeout(fast_fetch, 2, "default data").await;
+    println!("Fast: {}", result); // "real data"
+}
+```
+
+### Soal 5 — Select Race (Sedang)
+
+Gunakan `tokio::select!` untuk membuat "race" antara 3 async tasks dengan delay random. Print siapa yang menang.
+
+**Jawaban:**
+
+```rust
+use tokio::time::{sleep, Duration};
+use std::time::Instant;
+
+async fn runner(name: &str, ms: u64) -> String {
+    sleep(Duration::from_millis(ms)).await;
+    format!("{} finished in {}ms", name, ms)
+}
+
+#[tokio::main]
+async fn main() {
+    let start = Instant::now();
+
+    tokio::select! {
+        result = runner("Alice", 800) => {
+            println!("Winner: {}", result);
+        }
+        result = runner("Bob", 500) => {
+            println!("Winner: {}", result);
+        }
+        result = runner("Charlie", 1200) => {
+            println!("Winner: {}", result);
+        }
+    }
+
+    println!("Race decided in {:.2?}", start.elapsed());
+    // Bob wins (500ms) — Alice dan Charlie di-cancel
+}
+```
+
+### Soal 6 — Async Mutex Shared State (Sulit)
+
+Buat shared counter menggunakan `tokio::sync::Mutex` yang di-increment oleh 10 concurrent tasks, masing-masing 100 kali. Verifikasi total akhir adalah 1000.
+
+**Jawaban:**
+
+```rust
+use tokio::sync::Mutex;
+use std::sync::Arc;
+
+#[tokio::main]
+async fn main() {
+    let counter = Arc::new(Mutex::new(0u64));
+    let mut handles = vec![];
+
+    for task_id in 1..=10 {
+        let counter = counter.clone();
+        let handle = tokio::spawn(async move {
+            for _ in 0..100 {
+                let mut lock = counter.lock().await;
+                *lock += 1;
+            }
+            println!("Task {} done", task_id);
+        });
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        handle.await.unwrap();
+    }
+
+    let final_count = *counter.lock().await;
+    println!("Final count: {}", final_count);
+    assert_eq!(final_count, 1000);
+}
+```
+
+### Soal 7 — Concurrent File Processing (Sulit)
+
+Buat async program yang memproses list of "files" secara concurrent (simulasi dengan sleep). Gunakan Semaphore untuk membatasi max 3 file diproses bersamaan. Print progress setiap file.
+
+**Jawaban:**
+
+```rust
+use tokio::sync::Semaphore;
+use tokio::time::{sleep, Duration, Instant};
+use std::sync::Arc;
+
+async fn process_file(name: &str, size_mb: u64) -> (String, u64) {
+    // Simulasi processing — 100ms per MB
+    sleep(Duration::from_millis(size_mb * 100)).await;
+    (name.to_string(), size_mb)
+}
+
+#[tokio::main]
+async fn main() {
+    let files = vec![
+        ("report.csv", 5),
+        ("data.json", 3),
+        ("image.png", 8),
+        ("log.txt", 2),
+        ("backup.sql", 10),
+        ("config.yaml", 1),
+        ("archive.zip", 7),
+    ];
+
+    let semaphore = Arc::new(Semaphore::new(3));
+    let start = Instant::now();
+    let mut handles = vec![];
+
+    for (name, size) in files {
+        let sem = semaphore.clone();
+        let handle = tokio::spawn(async move {
+            let _permit = sem.acquire().await.unwrap();
+            println!("[{:.2?}] Processing {} ({}MB)...",
+                start.elapsed(), name, size);
+            let result = process_file(name, size).await;
+            println!("[{:.2?}] Done: {} ({}MB)",
+                start.elapsed(), result.0, result.1);
+            result
+        });
+        handles.push(handle);
+    }
+
+    let mut total_mb = 0u64;
+    for handle in handles {
+        let (name, size) = handle.await.unwrap();
+        total_mb += size;
+    }
+
+    println!("\nAll files processed: {}MB total in {:.2?}",
+        total_mb, start.elapsed());
+}
+```

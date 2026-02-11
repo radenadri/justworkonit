@@ -1,0 +1,760 @@
+# Unsafe Rust & FFI
+
+Rust menjamin memory safety melalui sistem ownership dan borrow checker. Namun, ada situasi di mana kita perlu melewati batasan ini — misalnya saat berinteraksi dengan hardware, memanggil library C, atau melakukan optimisasi low-level. Di sinilah **unsafe Rust** berperan.
+
+Unsafe bukan berarti "berbahaya" — melainkan "programmer bertanggung jawab atas invariant yang compiler tidak bisa verifikasi."
+
+---
+
+## Unsafe Superpowers
+
+Di dalam blok `unsafe`, kamu bisa melakukan 5 hal yang tidak diizinkan di safe Rust:
+
+1. Dereference raw pointer
+2. Memanggil fungsi atau method unsafe
+3. Mengakses atau memodifikasi mutable static variable
+4. Mengimplementasikan unsafe trait
+5. Mengakses field dari union
+
+```rust
+fn main() {
+    let mut num = 5;
+
+    // Membuat raw pointer — ini SAFE
+    let r1 = &num as *const i32;
+    let r2 = &mut num as *mut i32;
+
+    // Dereference raw pointer — ini UNSAFE
+    unsafe {
+        println!("r1 = {}", *r1);
+        println!("r2 = {}", *r2);
+    }
+}
+```
+
+Perhatikan: **membuat** raw pointer itu safe. Yang unsafe adalah **dereference** (mengakses nilai yang ditunjuk).
+
+---
+
+## Raw Pointers
+
+Raw pointer mirip reference, tapi tanpa safety guarantee dari borrow checker.
+
+### Dua Jenis Raw Pointer
+
+| Tipe | Penjelasan |
+|------|-----------|
+| `*const T` | Immutable raw pointer |
+| `*mut T` | Mutable raw pointer |
+
+```rust
+fn main() {
+    let mut value = 42;
+
+    let ptr_const: *const i32 = &value;
+    let ptr_mut: *mut i32 = &mut value;
+
+    unsafe {
+        println!("Const pointer: {}", *ptr_const);
+        *ptr_mut = 100;
+        println!("After mutation: {}", *ptr_mut);
+    }
+}
+```
+
+### Raw Pointer dari Alamat Arbitrary
+
+```rust
+fn main() {
+    // Pointer ke alamat arbitrary — SANGAT BERBAHAYA
+    let address = 0x012345usize;
+    let _r = address as *const i32;
+    // Jangan dereference ini! Akan crash.
+}
+```
+
+### Pointer Null
+
+```rust
+fn main() {
+    let null_ptr: *const i32 = std::ptr::null();
+
+    unsafe {
+        if !null_ptr.is_null() {
+            println!("Value: {}", *null_ptr);
+        } else {
+            println!("Pointer is null, skip dereference");
+        }
+    }
+}
+```
+
+---
+
+## Unsafe Functions dan Methods
+
+Fungsi yang ditandai `unsafe` hanya bisa dipanggil di dalam blok `unsafe`.
+
+```rust
+unsafe fn dangerous() {
+    println!("Ini fungsi unsafe!");
+}
+
+fn main() {
+    unsafe {
+        dangerous();
+    }
+}
+```
+
+### Safe Abstraction di Atas Unsafe Code
+
+Pattern paling penting: **bungkus unsafe code dalam safe API**.
+
+```rust
+fn split_at_mut(values: &mut [i32], mid: usize) -> (&mut [i32], &mut [i32]) {
+    let len = values.len();
+    let ptr = values.as_mut_ptr();
+
+    assert!(mid <= len);
+
+    unsafe {
+        (
+            std::slice::from_raw_parts_mut(ptr, mid),
+            std::slice::from_raw_parts_mut(ptr.add(mid), len - mid),
+        )
+    }
+}
+
+fn main() {
+    let mut data = vec![1, 2, 3, 4, 5, 6];
+    let (left, right) = split_at_mut(&mut data, 3);
+
+    println!("Left: {:?}", left);   // [1, 2, 3]
+    println!("Right: {:?}", right); // [4, 5, 6]
+
+    left[0] = 99;
+    println!("Modified left: {:?}", left); // [99, 2, 3]
+}
+```
+
+Fungsi `split_at_mut` ini **safe dari luar**, meskipun menggunakan unsafe di dalam. Ini adalah pattern yang digunakan standard library Rust.
+
+---
+
+## Mutable Static Variables
+
+Static variable bisa mutable, tapi mengaksesnya selalu unsafe karena risiko data race.
+
+```rust
+static mut COUNTER: u32 = 0;
+
+fn increment() {
+    unsafe {
+        COUNTER += 1;
+    }
+}
+
+fn main() {
+    increment();
+    increment();
+    increment();
+
+    unsafe {
+        println!("COUNTER = {}", COUNTER);
+    }
+}
+```
+
+Dalam production code, lebih baik gunakan `AtomicU32` atau `Mutex` daripada `static mut`.
+
+```rust
+use std::sync::atomic::{AtomicU32, Ordering};
+
+static COUNTER: AtomicU32 = AtomicU32::new(0);
+
+fn increment() {
+    COUNTER.fetch_add(1, Ordering::SeqCst);
+}
+
+fn main() {
+    increment();
+    increment();
+    increment();
+    println!("COUNTER = {}", COUNTER.load(Ordering::SeqCst));
+}
+```
+
+---
+
+## Unsafe Traits
+
+Trait bisa ditandai unsafe jika implementornya harus menjamin invariant tertentu.
+
+```rust
+unsafe trait Zeroable {
+    fn zeroed() -> Self;
+}
+
+unsafe impl Zeroable for i32 {
+    fn zeroed() -> Self {
+        0
+    }
+}
+
+unsafe impl Zeroable for f64 {
+    fn zeroed() -> Self {
+        0.0
+    }
+}
+
+fn create_zero<T: Zeroable>() -> T {
+    T::zeroed()
+}
+
+fn main() {
+    let x: i32 = create_zero();
+    let y: f64 = create_zero();
+    println!("i32 zero: {}, f64 zero: {}", x, y);
+}
+```
+
+Contoh di standard library: `Send` dan `Sync` adalah unsafe traits.
+
+---
+
+## FFI — Foreign Function Interface
+
+FFI memungkinkan Rust memanggil (dan dipanggil oleh) kode dari bahasa lain, terutama C.
+
+### Memanggil Fungsi C dari Rust
+
+```rust
+extern "C" {
+    fn abs(input: i32) -> i32;
+    fn sqrt(input: f64) -> f64;
+}
+
+fn main() {
+    unsafe {
+        println!("abs(-5) = {}", abs(-5));
+        println!("sqrt(16.0) = {}", sqrt(16.0));
+    }
+}
+```
+
+`extern "C"` mendeklarasikan fungsi external menggunakan C ABI (Application Binary Interface).
+
+### Expose Fungsi Rust ke C
+
+```rust
+#[no_mangle]
+pub extern "C" fn rust_add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+#[no_mangle]
+pub extern "C" fn rust_greeting() {
+    println!("Hello from Rust!");
+}
+```
+
+- `#[no_mangle]` mencegah compiler mengubah nama fungsi
+- `extern "C"` menggunakan C calling convention
+
+### Bekerja dengan C Strings
+
+```rust
+use std::ffi::{CStr, CString};
+use std::os::raw::c_char;
+
+#[no_mangle]
+pub extern "C" fn greet(name: *const c_char) {
+    let c_str = unsafe {
+        assert!(!name.is_null());
+        CStr::from_ptr(name)
+    };
+
+    match c_str.to_str() {
+        Ok(s) => println!("Hello, {}!", s),
+        Err(_) => println!("Hello, invalid UTF-8!"),
+    }
+}
+
+fn main() {
+    let name = CString::new("Rustacean").expect("CString failed");
+    greet(name.as_ptr());
+}
+```
+
+### Tipe Data FFI Mapping
+
+| C Type | Rust Type |
+|--------|-----------|
+| `int` | `i32` atau `c_int` |
+| `unsigned int` | `u32` atau `c_uint` |
+| `long` | `i64` atau `c_long` |
+| `float` | `f32` |
+| `double` | `f64` |
+| `char*` | `*const c_char` |
+| `void*` | `*mut c_void` |
+| `bool` | `bool` |
+| `size_t` | `usize` |
+
+---
+
+## Struct FFI
+
+Passing struct antara Rust dan C.
+
+```rust
+#[repr(C)]
+#[derive(Debug)]
+pub struct Point {
+    pub x: f64,
+    pub y: f64,
+}
+
+#[no_mangle]
+pub extern "C" fn distance(p1: &Point, p2: &Point) -> f64 {
+    let dx = p1.x - p2.x;
+    let dy = p1.y - p2.y;
+    (dx * dx + dy * dy).sqrt()
+}
+
+fn main() {
+    let a = Point { x: 0.0, y: 0.0 };
+    let b = Point { x: 3.0, y: 4.0 };
+    println!("Distance: {}", distance(&a, &b)); // 5.0
+}
+```
+
+`#[repr(C)]` memastikan layout memory struct sama dengan C.
+
+---
+
+## Callback dari C ke Rust
+
+```rust
+type Callback = extern "C" fn(i32) -> i32;
+
+#[no_mangle]
+pub extern "C" fn apply_twice(f: Callback, value: i32) -> i32 {
+    f(f(value))
+}
+
+extern "C" fn double_it(x: i32) -> i32 {
+    x * 2
+}
+
+fn main() {
+    let result = apply_twice(double_it, 5);
+    println!("apply_twice(double, 5) = {}", result); // 20
+}
+```
+
+---
+
+## Best Practices Unsafe Rust
+
+1. **Minimize unsafe scope** — buat blok unsafe sekecil mungkin
+2. **Wrap dalam safe API** — jangan expose unsafe ke user
+3. **Dokumentasikan invariant** — jelaskan asumsi yang harus dijaga
+4. **Gunakan assert** — validasi input sebelum masuk unsafe
+5. **Prefer safe alternatives** — gunakan `AtomicU32` daripada `static mut`
+6. **Test extensively** — unsafe code butuh testing extra
+
+```rust
+/// Mengambil elemen dari slice tanpa bounds checking.
+///
+/// # Safety
+///
+/// Caller harus memastikan bahwa `index < slice.len()`.
+/// Pelanggaran akan menyebabkan undefined behavior.
+unsafe fn get_unchecked(slice: &[i32], index: usize) -> i32 {
+    *slice.as_ptr().add(index)
+}
+
+fn safe_get(slice: &[i32], index: usize) -> Option<i32> {
+    if index < slice.len() {
+        Some(unsafe { get_unchecked(slice, index) })
+    } else {
+        None
+    }
+}
+
+fn main() {
+    let data = vec![10, 20, 30, 40, 50];
+
+    println!("{:?}", safe_get(&data, 2));  // Some(30)
+    println!("{:?}", safe_get(&data, 10)); // None
+}
+```
+
+---
+
+## Studi Kasus: Safe Wrapper untuk Bitmap Buffer
+
+Kita buat safe abstraction di atas raw memory buffer, seperti yang sering ditemui di graphics programming.
+
+```rust
+struct Bitmap {
+    width: usize,
+    height: usize,
+    data: *mut u8,
+}
+
+impl Bitmap {
+    fn new(width: usize, height: usize) -> Self {
+        let size = width * height * 4; // RGBA
+        let layout = std::alloc::Layout::from_size_align(size, 1).unwrap();
+        let data = unsafe { std::alloc::alloc_zeroed(layout) };
+
+        if data.is_null() {
+            panic!("Failed to allocate bitmap buffer");
+        }
+
+        Bitmap { width, height, data }
+    }
+
+    fn set_pixel(&mut self, x: usize, y: usize, r: u8, g: u8, b: u8, a: u8) {
+        assert!(x < self.width && y < self.height, "Pixel out of bounds");
+        let offset = (y * self.width + x) * 4;
+
+        unsafe {
+            *self.data.add(offset) = r;
+            *self.data.add(offset + 1) = g;
+            *self.data.add(offset + 2) = b;
+            *self.data.add(offset + 3) = a;
+        }
+    }
+
+    fn get_pixel(&self, x: usize, y: usize) -> (u8, u8, u8, u8) {
+        assert!(x < self.width && y < self.height, "Pixel out of bounds");
+        let offset = (y * self.width + x) * 4;
+
+        unsafe {
+            (
+                *self.data.add(offset),
+                *self.data.add(offset + 1),
+                *self.data.add(offset + 2),
+                *self.data.add(offset + 3),
+            )
+        }
+    }
+
+    fn fill(&mut self, r: u8, g: u8, b: u8, a: u8) {
+        for y in 0..self.height {
+            for x in 0..self.width {
+                self.set_pixel(x, y, r, g, b, a);
+            }
+        }
+    }
+}
+
+impl Drop for Bitmap {
+    fn drop(&mut self) {
+        let size = self.width * self.height * 4;
+        let layout = std::alloc::Layout::from_size_align(size, 1).unwrap();
+        unsafe {
+            std::alloc::dealloc(self.data, layout);
+        }
+    }
+}
+
+fn main() {
+    let mut bmp = Bitmap::new(100, 100);
+
+    // Fill dengan warna biru semi-transparan
+    bmp.fill(0, 0, 255, 128);
+
+    // Set satu pixel merah
+    bmp.set_pixel(50, 50, 255, 0, 0, 255);
+
+    let pixel = bmp.get_pixel(50, 50);
+    println!("Pixel (50,50): R={}, G={}, B={}, A={}", pixel.0, pixel.1, pixel.2, pixel.3);
+
+    let bg = bmp.get_pixel(0, 0);
+    println!("Background: R={}, G={}, B={}, A={}", bg.0, bg.1, bg.2, bg.3);
+    // Drop otomatis deallocate memory
+}
+```
+
+Pattern ini menunjukkan prinsip utama: unsafe di dalam, safe API di luar.
+
+---
+
+## Bank Soal
+
+### Soal 1 — Swap dua variabel via raw pointer (Mudah)
+
+Buat fungsi `swap_raw` yang menukar nilai dua variabel menggunakan raw pointer.
+
+**Jawaban:**
+
+```rust
+fn swap_raw(a: &mut i32, b: &mut i32) {
+    let pa = a as *mut i32;
+    let pb = b as *mut i32;
+
+    unsafe {
+        let temp = *pa;
+        *pa = *pb;
+        *pb = temp;
+    }
+}
+
+fn main() {
+    let mut x = 10;
+    let mut y = 20;
+    println!("Before: x={}, y={}", x, y);
+
+    swap_raw(&mut x, &mut y);
+    println!("After: x={}, y={}", x, y);
+}
+```
+
+### Soal 2 — Safe wrapper untuk array sum via pointer (Sedang)
+
+Buat fungsi safe `sum_slice` yang di dalamnya menggunakan pointer arithmetic untuk menjumlahkan elemen slice.
+
+**Jawaban:**
+
+```rust
+fn sum_slice(data: &[i32]) -> i32 {
+    let ptr = data.as_ptr();
+    let len = data.len();
+    let mut total = 0;
+
+    unsafe {
+        for i in 0..len {
+            total += *ptr.add(i);
+        }
+    }
+
+    total
+}
+
+fn main() {
+    let numbers = vec![1, 2, 3, 4, 5];
+    println!("Sum: {}", sum_slice(&numbers)); // 15
+}
+```
+
+### Soal 3 — Expose fungsi ke C ABI (Sedang)
+
+Buat struct `Rectangle` dengan `#[repr(C)]` dan fungsi extern yang menghitung luas.
+
+**Jawaban:**
+
+```rust
+#[repr(C)]
+#[derive(Debug)]
+pub struct Rectangle {
+    pub width: f64,
+    pub height: f64,
+}
+
+#[no_mangle]
+pub extern "C" fn rect_area(rect: &Rectangle) -> f64 {
+    rect.width * rect.height
+}
+
+#[no_mangle]
+pub extern "C" fn rect_perimeter(rect: &Rectangle) -> f64 {
+    2.0 * (rect.width + rect.height)
+}
+
+fn main() {
+    let r = Rectangle { width: 5.0, height: 3.0 };
+    println!("Area: {}", rect_area(&r));
+    println!("Perimeter: {}", rect_perimeter(&r));
+}
+```
+
+### Soal 4 — Implement unsafe trait (Sedang)
+
+Buat unsafe trait `AsBytes` yang mengkonversi tipe ke byte slice.
+
+**Jawaban:**
+
+```rust
+unsafe trait AsBytes {
+    fn as_bytes(&self) -> &[u8];
+}
+
+unsafe impl AsBytes for u32 {
+    fn as_bytes(&self) -> &[u8] {
+        let ptr = self as *const u32 as *const u8;
+        let size = std::mem::size_of::<u32>();
+        unsafe { std::slice::from_raw_parts(ptr, size) }
+    }
+}
+
+unsafe impl AsBytes for i64 {
+    fn as_bytes(&self) -> &[u8] {
+        let ptr = self as *const i64 as *const u8;
+        let size = std::mem::size_of::<i64>();
+        unsafe { std::slice::from_raw_parts(ptr, size) }
+    }
+}
+
+fn main() {
+    let val: u32 = 0xDEADBEEF;
+    let bytes = val.as_bytes();
+    println!("u32 bytes: {:02X?}", bytes);
+
+    let val2: i64 = 42;
+    let bytes2 = val2.as_bytes();
+    println!("i64 bytes: {:02X?}", bytes2);
+}
+```
+
+### Soal 5 — Ring buffer dengan raw allocation (Sulit)
+
+Implementasikan ring buffer sederhana menggunakan manual memory allocation.
+
+**Jawaban:**
+
+```rust
+struct RingBuffer {
+    data: *mut i32,
+    capacity: usize,
+    head: usize,
+    tail: usize,
+    count: usize,
+}
+
+impl RingBuffer {
+    fn new(capacity: usize) -> Self {
+        let layout = std::alloc::Layout::array::<i32>(capacity).unwrap();
+        let data = unsafe { std::alloc::alloc(layout) as *mut i32 };
+
+        if data.is_null() {
+            panic!("Allocation failed");
+        }
+
+        RingBuffer {
+            data,
+            capacity,
+            head: 0,
+            tail: 0,
+            count: 0,
+        }
+    }
+
+    fn push(&mut self, value: i32) -> bool {
+        if self.count == self.capacity {
+            return false; // Buffer penuh
+        }
+
+        unsafe {
+            *self.data.add(self.tail) = value;
+        }
+
+        self.tail = (self.tail + 1) % self.capacity;
+        self.count += 1;
+        true
+    }
+
+    fn pop(&mut self) -> Option<i32> {
+        if self.count == 0 {
+            return None;
+        }
+
+        let value = unsafe { *self.data.add(self.head) };
+        self.head = (self.head + 1) % self.capacity;
+        self.count -= 1;
+        Some(value)
+    }
+
+    fn len(&self) -> usize {
+        self.count
+    }
+
+    fn is_empty(&self) -> bool {
+        self.count == 0
+    }
+}
+
+impl Drop for RingBuffer {
+    fn drop(&mut self) {
+        let layout = std::alloc::Layout::array::<i32>(self.capacity).unwrap();
+        unsafe {
+            std::alloc::dealloc(self.data as *mut u8, layout);
+        }
+    }
+}
+
+fn main() {
+    let mut rb = RingBuffer::new(4);
+
+    rb.push(10);
+    rb.push(20);
+    rb.push(30);
+    rb.push(40);
+
+    println!("Full? push(50) = {}", rb.push(50)); // false
+
+    println!("Pop: {:?}", rb.pop()); // Some(10)
+    println!("Pop: {:?}", rb.pop()); // Some(20)
+
+    rb.push(50); // Sekarang ada ruang
+    rb.push(60);
+
+    while !rb.is_empty() {
+        println!("Pop: {:?}", rb.pop());
+    }
+}
+```
+
+### Soal 6 — FFI callback pattern (Sulit)
+
+Buat sistem di mana fungsi C-compatible menerima callback dan array pointer.
+
+**Jawaban:**
+
+```rust
+type TransformFn = extern "C" fn(i32) -> i32;
+
+#[no_mangle]
+pub extern "C" fn transform_array(
+    data: *mut i32,
+    len: usize,
+    f: TransformFn,
+) {
+    assert!(!data.is_null());
+
+    unsafe {
+        for i in 0..len {
+            let ptr = data.add(i);
+            *ptr = f(*ptr);
+        }
+    }
+}
+
+extern "C" fn square(x: i32) -> i32 {
+    x * x
+}
+
+extern "C" fn negate(x: i32) -> i32 {
+    -x
+}
+
+fn safe_transform(data: &mut [i32], f: TransformFn) {
+    let ptr = data.as_mut_ptr();
+    let len = data.len();
+    transform_array(ptr, len, f);
+}
+
+fn main() {
+    let mut numbers = vec![1, 2, 3, 4, 5];
+    println!("Original: {:?}", numbers);
+
+    safe_transform(&mut numbers, square);
+    println!("Squared: {:?}", numbers);
+
+    safe_transform(&mut numbers, negate);
+    println!("Negated: {:?}", numbers);
+}
+```

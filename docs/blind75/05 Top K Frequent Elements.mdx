@@ -1,47 +1,47 @@
 # 05. Top K Frequent Elements
 
-## Problem
+## Soal
 
-**Difficulty:** Medium
+**Kesulitan:** Medium
 
-Given a non-empty array of integers, return the **k** most frequent elements.
+Diberikan sebuah array integer yang tidak kosong, kembalikan **k** elemen yang paling sering muncul.
 
 ---
 
-## Examples
+## Contoh
 
-### Example 1
+### Contoh 1
 
 **Input:** `nums = [1, 1, 1, 2, 2, 3]`, `k = 2`  
 **Output:** `[1, 2]`
 
-### Example 2
+### Contoh 2
 
 **Input:** `nums = [1]`, `k = 1`  
 **Output:** `[1]`
 
 ---
 
-## Constraints
+## Batasan
 
-- You may assume `k` is always valid: `1 <= k <= number of unique elements`
-- Your algorithm's time complexity **must be** better than O(n log n), where n is the array's size
+- Kamu boleh berasumsi `k` selalu valid: `1 <= k <= jumlah elemen unik`
+- Kompleksitas waktu algoritmamu **harus** lebih baik dari O(n log n), di mana n adalah ukuran array
 
 ---
 
-## Solution
+## Solusi
 
-### Approach: Hash Map + Sorting
+### Pendekatan: Hash Map + Sorting
 
-**Strategy:**
-1. **Count frequencies:** Use a hash map to count occurrences of each number
-2. **Sort by frequency:** Convert to array and sort by count in descending order
-3. **Select top k:** Extract the first k elements
+**Strategi:**
+1. **Hitung frekuensi:** Gunakan hash map untuk menghitung kemunculan setiap angka
+2. **Urutkan berdasarkan frekuensi:** Konversi ke array dan urutkan berdasarkan hitungan secara menurun
+3. **Pilih top k:** Ambil k elemen pertama
 
-> **Related Problem:** [692. Top K Frequent Words](https://leetcode.com/problems/top-k-frequent-words/)
+> **Soal Terkait:** [692. Top K Frequent Words](https://leetcode.com/problems/top-k-frequent-words/)
 
-**Time Complexity:** O(n log n) - due to sorting  
-**Space Complexity:** O(n)
+**Kompleksitas Waktu:** O(n log n) - karena pengurutan  
+**Kompleksitas Ruang:** O(n)
 
 ```javascript
 class Solution {
@@ -70,9 +70,9 @@ class Solution {
 }
 ```
 
-### Alternative: Bucket Sort (O(n) Time)
+### Alternatif: Bucket Sort (Waktu O(n))
 
-For better time complexity, use bucket sort where index represents frequency:
+Untuk kompleksitas waktu yang lebih baik, gunakan bucket sort di mana indeks merepresentasikan frekuensi:
 
 ```javascript
 class Solution {
@@ -83,14 +83,14 @@ class Solution {
             freqMap.set(num, (freqMap.get(num) || 0) + 1);
         }
 
-        // Create buckets where index = frequency
+        // Buat bucket di mana indeks = frekuensi
         const buckets = Array(nums.length + 1).fill(null).map(() => []);
         
         for (const [num, freq] of freqMap) {
             buckets[freq].push(num);
         }
 
-        // Collect k most frequent from buckets (highest to lowest)
+        // Kumpulkan k elemen paling sering dari bucket (tertinggi ke terendah)
         const result = [];
         for (let i = buckets.length - 1; i >= 0 && result.length < k; i--) {
             result.push(...buckets[i]);
@@ -101,12 +101,12 @@ class Solution {
 }
 ```
 
-**Time Complexity:** O(n)  
-**Space Complexity:** O(n)
+**Kompleksitas Waktu:** O(n)  
+**Kompleksitas Ruang:** O(n)
 
 ---
 
-## Edge Cases
+## Kasus Tepi
 
-- **Frequency ties:** When multiple values share the same count, any order is acceptable
-- **k equals unique elements:** Return all unique elements sorted by frequency
+- **Frekuensi seri:** Ketika beberapa nilai memiliki hitungan yang sama, urutan apa pun diterima
+- **k sama dengan jumlah elemen unik:** Kembalikan semua elemen unik diurutkan berdasarkan frekuensi

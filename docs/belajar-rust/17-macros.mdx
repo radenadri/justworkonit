@@ -1,0 +1,853 @@
+# Macros
+
+Macros di Rust adalah fitur metaprogramming yang memungkinkan kita menulis **kode yang menghasilkan kode**. Berbeda dengan function yang bekerja pada runtime, macros bekerja pada **compile time** — mereka menerima token stream dan menghasilkan token stream baru yang dikompilasi oleh compiler.
+
+## Mengapa Macros?
+
+Ada beberapa hal yang function biasa tidak bisa lakukan tapi macros bisa:
+
+1. **Variadic arguments** — menerima jumlah parameter yang bervariasi (seperti `println!`)
+2. **Code generation** — generate repetitive code patterns
+3. **DSL (Domain Specific Language)** — membuat syntax custom
+4. **Compile-time computation** — evaluasi dan validasi saat kompilasi
+5. **Derive attributes** — auto-implement traits
+
+## Declarative Macros: macro_rules!
+
+### Syntax Dasar
+
+`macro_rules!` adalah cara paling umum membuat macros di Rust:
+
+```rust
+macro_rules! say_hello {
+    () => {
+        println!("Hello from macro!");
+    };
+}
+
+fn main() {
+    say_hello!(); // expands to: println!("Hello from macro!");
+}
+```
+
+### Macro dengan Parameter
+
+```rust
+macro_rules! greet {
+    ($name:expr) => {
+        println!("Hello, {}!", $name);
+    };
+}
+
+fn main() {
+    greet!("Rust");     // Hello, Rust!
+    greet!(42);          // Hello, 42!
+    greet!(1 + 2);       // Hello, 3!
+}
+```
+
+`$name:expr` artinya: tangkap satu expression dan simpan di variabel `$name`.
+
+## Fragment Specifiers (Syntax Matchers)
+
+Setiap parameter macro memiliki **fragment specifier** yang menentukan tipe syntax apa yang bisa ditangkap:
+
+| Specifier | Cocok Dengan | Contoh |
+|-----------|-------------|--------|
+| `expr` | Expression | `1 + 2`, `"hello"`, `foo()` |
+| `ident` | Identifier | `my_var`, `MyStruct` |
+| `ty` | Type | `i32`, `String`, `Vec<u8>` |
+| `pat` | Pattern | `Some(x)`, `_`, `1..=5` |
+| `stmt` | Statement | `let x = 5;` |
+| `block` | Block | kode dalam kurung kurawal |
+| `item` | Item | `fn`, `struct`, `impl` |
+| `path` | Path | `std::io::Result` |
+| `literal` | Literal | `42`, `"text"`, `true` |
+| `tt` | Token tree | Apa saja (paling fleksibel) |
+
+### Contoh dengan Berbagai Specifiers
+
+```rust
+// ident — untuk membuat nama baru
+macro_rules! create_function {
+    ($name:ident) => {
+        fn $name() {
+            println!("Function `{}` dipanggil", stringify!($name));
+        }
+    };
+}
+
+create_function!(hello);
+create_function!(world);
+
+// ty — untuk tipe
+macro_rules! create_vec {
+    ($t:ty) => {
+        Vec::<$t>::new()
+    };
+}
+
+fn main() {
+    hello();  // Function `hello` dipanggil
+    world();  // Function `world` dipanggil
+
+    let v: Vec<i32> = create_vec!(i32);
+    let s: Vec<String> = create_vec!(String);
+}
+```
+
+## Multiple Pattern Arms
+
+Macros bisa memiliki beberapa pattern, mirip match:
+
+```rust
+macro_rules! math {
+    // Pattern 1: addition
+    (add $a:expr, $b:expr) => {
+        $a + $b
+    };
+    // Pattern 2: multiply
+    (mul $a:expr, $b:expr) => {
+        $a * $b
+    };
+    // Pattern 3: square
+    (square $a:expr) => {
+        $a * $a
+    };
+}
+
+fn main() {
+    println!("{}", math!(add 2, 3));    // 5
+    println!("{}", math!(mul 4, 5));    // 20
+    println!("{}", math!(square 6));    // 36
+}
+```
+
+## Repetition Patterns
+
+Ini fitur paling powerful dari `macro_rules!` — menangkap **jumlah argumen yang bervariasi**:
+
+### Syntax Repetition
+
+- `$( ... )*` — nol atau lebih
+- `$( ... )+` — satu atau lebih
+- `$( ... ),*` — nol atau lebih, dipisah koma
+- `$( ... ),+` — satu atau lebih, dipisah koma
+
+```rust
+// Vec builder — mirip vec! di standard library
+macro_rules! my_vec {
+    // Empty
+    () => {
+        Vec::new()
+    };
+    // Dengan elements
+    ( $( $x:expr ),+ $(,)? ) => {
+        {
+            let mut v = Vec::new();
+            $( v.push($x); )+
+            v
+        }
+    };
+}
+
+fn main() {
+    let empty: Vec<i32> = my_vec![];
+    let nums = my_vec![1, 2, 3, 4, 5];
+    let trailing = my_vec![10, 20, 30,]; // trailing comma OK
+
+    println!("{:?}", empty);    // []
+    println!("{:?}", nums);     // [1, 2, 3, 4, 5]
+    println!("{:?}", trailing); // [10, 20, 30]
+}
+```
+
+### HashMap Builder
+
+```rust
+macro_rules! hashmap {
+    ( $( $key:expr => $value:expr ),* $(,)? ) => {
+        {
+            let mut map = std::collections::HashMap::new();
+            $( map.insert($key, $value); )*
+            map
+        }
+    };
+}
+
+fn main() {
+    let scores = hashmap! {
+        "Alice" => 95,
+        "Bob" => 87,
+        "Charlie" => 92,
+    };
+
+    for (name, score) in &scores {
+        println!("{}: {}", name, score);
+    }
+}
+```
+
+### Nested Repetition
+
+```rust
+macro_rules! matrix {
+    ( $( [ $( $val:expr ),* ] ),* $(,)? ) => {
+        vec![ $( vec![ $( $val ),* ] ),* ]
+    };
+}
+
+fn main() {
+    let m = matrix![
+        [1, 2, 3],
+        [4, 5, 6],
+        [7, 8, 9],
+    ];
+
+    for row in &m {
+        println!("{:?}", row);
+    }
+}
+```
+
+## Recursive Macros
+
+Macros bisa memanggil dirinya sendiri:
+
+```rust
+macro_rules! count {
+    // Base case
+    () => { 0usize };
+    // Recursive: hitung satu, lanjut sisanya
+    ( $head:tt $($tail:tt)* ) => {
+        1usize + count!( $($tail)* )
+    };
+}
+
+macro_rules! count_exprs {
+    () => { 0 };
+    ($e:expr) => { 1 };
+    ($e:expr, $($rest:expr),+) => {
+        1 + count_exprs!($($rest),+)
+    };
+}
+
+fn main() {
+    let c1 = count!(a b c d e);
+    let c2 = count_exprs!(1, "hello", true, 4.0);
+
+    println!("count: {}", c1);        // 5
+    println!("count_exprs: {}", c2);  // 4
+}
+```
+
+## Macro Praktis: Struct Builder
+
+```rust
+macro_rules! builder {
+    (
+        $name:ident {
+            $( $field:ident : $ty:ty ),* $(,)?
+        }
+    ) => {
+        #[derive(Debug, Clone)]
+        struct $name {
+            $( $field: Option<$ty>, )*
+        }
+
+        impl $name {
+            fn new() -> Self {
+                $name {
+                    $( $field: None, )*
+                }
+            }
+
+            $(
+                fn $field(mut self, value: $ty) -> Self {
+                    self.$field = Some(value);
+                    self
+                }
+            )*
+        }
+    };
+}
+
+builder!(Config {
+    host: String,
+    port: u16,
+    debug: bool,
+});
+
+fn main() {
+    let config = Config::new()
+        .host("localhost".to_string())
+        .port(8080)
+        .debug(true);
+
+    println!("{:?}", config);
+}
+```
+
+## Procedural Macros (Overview)
+
+Procedural macros lebih powerful tapi juga lebih complex. Mereka beroperasi pada token stream sebagai input dan output.
+
+### Tiga Jenis Procedural Macros
+
+```rust
+// 1. Function-like — dipanggil seperti macro biasa
+// my_macro!(input)
+
+// 2. Derive — auto-implement trait
+// #[derive(MyTrait)]
+
+// 3. Attribute — custom attribute
+// #[my_attribute]
+```
+
+### Derive Macro (Konsep)
+
+Derive macro adalah procedural macro yang paling sering digunakan. Contoh familiar:
+
+```rust
+// Derive macros dari standard library
+#[derive(Debug, Clone, PartialEq)]
+struct Point {
+    x: f64,
+    y: f64,
+}
+
+// Derive macros dari external crates
+// serde — serialization
+use serde::{Serialize, Deserialize};
+
+#[derive(Serialize, Deserialize, Debug)]
+struct User {
+    name: String,
+    email: String,
+    age: u32,
+}
+
+fn main() {
+    let user = User {
+        name: "Alice".to_string(),
+        email: "alice@example.com".to_string(),
+        age: 30,
+    };
+
+    // Serialize ke JSON (berkat derive Serialize)
+    let json = serde_json::to_string(&user).unwrap();
+    println!("{}", json);
+
+    // Deserialize dari JSON (berkat derive Deserialize)
+    let parsed: User = serde_json::from_str(&json).unwrap();
+    println!("{:?}", parsed);
+}
+```
+
+### Membuat Custom Derive Macro (Simplified)
+
+Custom derive macro memerlukan crate terpisah dengan `proc-macro = true`:
+
+```toml
+# Cargo.toml untuk proc-macro crate
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = "2"
+quote = "1"
+proc-macro2 = "1"
+```
+
+```rust
+// Contoh sederhana — auto-generate describe() method
+use proc_macro::TokenStream;
+use quote::quote;
+use syn::{parse_macro_input, DeriveInput};
+
+#[proc_macro_derive(Describe)]
+pub fn describe_derive(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = &input.ident;
+    let name_str = name.to_string();
+
+    let expanded = quote! {
+        impl #name {
+            pub fn describe(&self) -> String {
+                format!("This is a {} instance", #name_str)
+            }
+        }
+    };
+
+    TokenStream::from(expanded)
+}
+```
+
+Penggunaan:
+
+```rust
+// Di crate utama
+use my_derive::Describe;
+
+#[derive(Describe)]
+struct MyApp;
+
+fn main() {
+    let app = MyApp;
+    println!("{}", app.describe()); // "This is a MyApp instance"
+}
+```
+
+## Macros vs Functions: Kapan Menggunakan Mana?
+
+| Aspek | Function | Macro |
+|-------|----------|-------|
+| Evaluasi | Runtime | Compile time |
+| Type checking | Ya | Pada hasil expand |
+| Variadic args | Tidak | Ya |
+| Code generation | Tidak | Ya |
+| Debugging | Mudah | Lebih sulit |
+| Readability | Jelas | Bisa complex |
+
+### Gunakan Macros Ketika:
+
+1. Butuh variadic arguments (jumlah parameter bervariasi)
+2. Ingin generate boilerplate code
+3. Perlu compile-time validation
+4. Membuat DSL atau syntax sugar
+5. Auto-implementing traits (derive)
+
+### Gunakan Functions Ketika:
+
+1. Logic bisa diekspresikan dengan parameter tetap
+2. Butuh type safety yang jelas
+3. Debugging harus mudah
+4. Reusability biasa sudah cukup
+
+## Debugging Macros
+
+### cargo expand
+
+Tool untuk melihat hasil macro expansion:
+
+```bash
+# Install
+cargo install cargo-expand
+
+# Expand semua macros di project
+cargo expand
+
+# Expand macro tertentu
+cargo expand -- main
+```
+
+### stringify! dan dbg!
+
+```rust
+macro_rules! debug_macro {
+    ($e:expr) => {
+        println!("Expression: {} = {:?}", stringify!($e), $e);
+    };
+}
+
+fn main() {
+    let x = 42;
+    debug_macro!(x + 1);
+    // Output: Expression: x + 1 = 43
+
+    debug_macro!(vec![1, 2, 3].len());
+    // Output: Expression: vec![1, 2, 3].len() = 3
+}
+```
+
+## Studi Kasus: Test Framework Macro
+
+Membuat mini test framework dengan macro:
+
+```rust
+macro_rules! test_suite {
+    (
+        name: $suite_name:expr;
+        $(
+            test $test_name:ident: $body:block
+        )*
+    ) => {
+        fn main() {
+            println!("=== Test Suite: {} ===\n", $suite_name);
+            let mut passed = 0u32;
+            let mut failed = 0u32;
+
+            $(
+                print!("  test {} ... ", stringify!($test_name));
+                let result = std::panic::catch_unwind(|| $body);
+                match result {
+                    Ok(()) => {
+                        println!("ok");
+                        passed += 1;
+                    }
+                    Err(_) => {
+                        println!("FAILED");
+                        failed += 1;
+                    }
+                }
+            )*
+
+            println!("\n=== Results: {} passed, {} failed ===", passed, failed);
+            if failed > 0 {
+                std::process::exit(1);
+            }
+        }
+    };
+}
+
+macro_rules! assert_approx_eq {
+    ($a:expr, $b:expr, $eps:expr) => {
+        let diff = ($a - $b).abs();
+        assert!(
+            diff < $eps,
+            "assertion failed: |{} - {}| = {} >= {}",
+            $a, $b, diff, $eps
+        );
+    };
+}
+
+test_suite! {
+    name: "Math Operations";
+
+    test addition: {
+        assert_eq!(2 + 2, 4);
+    }
+
+    test string_length: {
+        let s = "hello";
+        assert_eq!(s.len(), 5);
+    }
+
+    test float_comparison: {
+        assert_approx_eq!(0.1 + 0.2, 0.3, 1e-10);
+    }
+
+    test vector_operations: {
+        let v = vec![1, 2, 3];
+        assert_eq!(v.iter().sum::<i32>(), 6);
+    }
+
+    test option_unwrap: {
+        let x: Option<i32> = Some(42);
+        assert_eq!(x.unwrap(), 42);
+    }
+}
+```
+
+## Bank Soal
+
+### Soal 1 — Macro min/max (Mudah)
+
+Buat macro `min_max!` yang menerima dua expression dan mengembalikan tuple `(min, max)`.
+
+**Jawaban:**
+
+```rust
+macro_rules! min_max {
+    ($a:expr, $b:expr) => {
+        if $a < $b { ($a, $b) } else { ($b, $a) }
+    };
+}
+
+fn main() {
+    let (min, max) = min_max!(10, 5);
+    println!("min: {}, max: {}", min, max); // min: 5, max: 10
+
+    let (min, max) = min_max!(3.14, 2.71);
+    println!("min: {}, max: {}", min, max); // min: 2.71, max: 3.14
+}
+```
+
+### Soal 2 — Repeat Print (Mudah)
+
+Buat macro `repeat!` yang mencetak sebuah expression N kali.
+
+**Jawaban:**
+
+```rust
+macro_rules! repeat {
+    ($n:expr, $body:expr) => {
+        for _ in 0..$n {
+            println!("{}", $body);
+        }
+    };
+}
+
+fn main() {
+    repeat!(3, "Hello!");
+    // Hello!
+    // Hello!
+    // Hello!
+
+    repeat!(2, 42 * 2);
+    // 84
+    // 84
+}
+```
+
+### Soal 3 — Variadic Sum (Sedang)
+
+Buat macro `sum!` yang menjumlahkan jumlah argumen yang bervariasi.
+
+**Jawaban:**
+
+```rust
+macro_rules! sum {
+    // Single value
+    ($x:expr) => { $x };
+    // Multiple values
+    ($x:expr, $($rest:expr),+) => {
+        $x + sum!($($rest),+)
+    };
+}
+
+fn main() {
+    println!("{}", sum!(1));                 // 1
+    println!("{}", sum!(1, 2));              // 3
+    println!("{}", sum!(1, 2, 3, 4, 5));     // 15
+    println!("{}", sum!(10, 20, 30));         // 60
+}
+```
+
+### Soal 4 — Enum with Display (Sedang)
+
+Buat macro `enum_str!` yang membuat enum dan auto-implement `Display` trait.
+
+**Jawaban:**
+
+```rust
+macro_rules! enum_str {
+    (
+        $name:ident {
+            $( $variant:ident ),* $(,)?
+        }
+    ) => {
+        #[derive(Debug, Clone, PartialEq)]
+        enum $name {
+            $( $variant, )*
+        }
+
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                match self {
+                    $( $name::$variant => write!(f, stringify!($variant)), )*
+                }
+            }
+        }
+    };
+}
+
+enum_str!(Color {
+    Red,
+    Green,
+    Blue,
+    Yellow,
+});
+
+fn main() {
+    let c = Color::Red;
+    println!("Color: {}", c);  // Color: Red
+    println!("Debug: {:?}", c); // Debug: Red
+
+    let colors = vec![Color::Red, Color::Green, Color::Blue];
+    for color in &colors {
+        println!("{}", color);
+    }
+}
+```
+
+### Soal 5 — JSON-like DSL (Sedang)
+
+Buat macro `json!` sederhana yang membuat nested `HashMap` dan `Vec` dari syntax mirip JSON.
+
+**Jawaban:**
+
+```rust
+use std::collections::HashMap;
+
+#[derive(Debug, Clone)]
+enum JsonValue {
+    Str(String),
+    Num(f64),
+    Bool(bool),
+    Null,
+    Array(Vec<JsonValue>),
+    Object(HashMap<String, JsonValue>),
+}
+
+macro_rules! json {
+    // null
+    (null) => { JsonValue::Null };
+    // bool
+    (true) => { JsonValue::Bool(true) };
+    (false) => { JsonValue::Bool(false) };
+    // array
+    ([ $( $val:tt ),* $(,)? ]) => {
+        JsonValue::Array(vec![ $( json!($val) ),* ])
+    };
+    // object
+    ({ $( $key:tt : $val:tt ),* $(,)? }) => {
+        {
+            let mut map = HashMap::new();
+            $( map.insert($key.to_string(), json!($val)); )*
+            JsonValue::Object(map)
+        }
+    };
+    // string literal
+    ($s:literal) => {
+        if let Some(_) = Some(stringify!($s)).filter(|s| s.starts_with('"')) {
+            JsonValue::Str($s.to_string())
+        } else {
+            JsonValue::Num($s as f64)
+        }
+    };
+}
+
+fn main() {
+    let data = json!({
+        "name": "Alice",
+        "age": 30,
+        "active": true,
+        "scores": [95, 87, 92],
+        "address": null
+    });
+
+    println!("{:#?}", data);
+}
+```
+
+### Soal 6 — Struct Field Counter (Sulit)
+
+Buat macro yang mendefinisikan struct dan otomatis menambahkan method `field_count()` yang mengembalikan jumlah field.
+
+**Jawaban:**
+
+```rust
+macro_rules! counted_struct {
+    (
+        $(#[$meta:meta])*
+        $vis:vis struct $name:ident {
+            $( $field_vis:vis $field:ident : $ty:ty ),* $(,)?
+        }
+    ) => {
+        $(#[$meta])*
+        $vis struct $name {
+            $( $field_vis $field: $ty, )*
+        }
+
+        impl $name {
+            pub fn field_count() -> usize {
+                // Count fields using repetition
+                {
+                    let mut count = 0usize;
+                    $( let _ = stringify!($field); count += 1; )*
+                    count
+                }
+            }
+
+            pub fn field_names() -> Vec<&'static str> {
+                vec![ $( stringify!($field), )* ]
+            }
+        }
+    };
+}
+
+counted_struct! {
+    #[derive(Debug)]
+    pub struct User {
+        pub name: String,
+        pub email: String,
+        pub age: u32,
+        pub active: bool,
+    }
+}
+
+counted_struct! {
+    #[derive(Debug)]
+    struct Point {
+        x: f64,
+        y: f64,
+    }
+}
+
+fn main() {
+    println!("User has {} fields: {:?}",
+        User::field_count(),
+        User::field_names()
+    );
+    // User has 4 fields: ["name", "email", "age", "active"]
+
+    println!("Point has {} fields: {:?}",
+        Point::field_count(),
+        Point::field_names()
+    );
+    // Point has 2 fields: ["x", "y"]
+}
+```
+
+### Soal 7 — Retry Macro (Sulit)
+
+Buat macro `retry!` yang menjalankan expression maksimal N kali sampai berhasil (Result::Ok). Jika semua gagal, return error terakhir.
+
+**Jawaban:**
+
+```rust
+macro_rules! retry {
+    ($max:expr, $body:expr) => {{
+        let mut last_err = None;
+        let mut success = None;
+
+        for attempt in 1..=$max {
+            match $body {
+                Ok(val) => {
+                    println!("  Attempt {}: success", attempt);
+                    success = Some(val);
+                    break;
+                }
+                Err(e) => {
+                    println!("  Attempt {}: failed - {}", attempt, e);
+                    last_err = Some(e);
+                }
+            }
+        }
+
+        match success {
+            Some(val) => Ok(val),
+            None => Err(last_err.unwrap()),
+        }
+    }};
+}
+
+use std::sync::atomic::{AtomicU32, Ordering};
+
+static CALL_COUNT: AtomicU32 = AtomicU32::new(0);
+
+fn flaky_operation() -> Result<String, String> {
+    let count = CALL_COUNT.fetch_add(1, Ordering::SeqCst);
+    if count < 2 {
+        Err(format!("transient error #{}", count + 1))
+    } else {
+        Ok("success!".to_string())
+    }
+}
+
+fn always_fail() -> Result<String, String> {
+    Err("permanent failure".to_string())
+}
+
+fn main() {
+    println!("Flaky operation (max 5 retries):");
+    let result = retry!(5, flaky_operation());
+    println!("Result: {:?}\n", result); // Ok("success!")
+
+    println!("Always fail (max 3 retries):");
+    let result = retry!(3, always_fail());
+    println!("Result: {:?}", result); // Err("permanent failure")
+}
+```

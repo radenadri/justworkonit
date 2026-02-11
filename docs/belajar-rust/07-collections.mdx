@@ -1,0 +1,575 @@
+# Collections: Vec, HashMap & String
+
+Collections menyimpan banyak nilai di heap. Tiga collections yang paling sering dipakai di Rust adalah `Vec`, `HashMap`, dan `String`.
+
+## Vec — Dynamic Array
+
+Vec adalah array dinamis — ukurannya bisa berubah saat runtime.
+
+### Membuat dan Mengisi Vec
+
+```rust
+fn main() {
+    // Cara 1: Vec::new()
+    let mut numbers: Vec<i32> = Vec::new();
+    numbers.push(1);
+    numbers.push(2);
+    numbers.push(3);
+
+    // Cara 2: vec! macro
+    let fruits = vec!["apel", "jeruk", "mangga"];
+
+    // Cara 3: Vec::with_capacity (optimasi)
+    let mut buffer = Vec::with_capacity(100);
+    buffer.push(42);
+
+    println!("numbers: {:?}", numbers);
+    println!("fruits: {:?}", fruits);
+    println!("buffer len: {}, capacity: {}", buffer.len(), buffer.capacity());
+}
+```
+
+### Akses Elemen
+
+```rust
+fn main() {
+    let v = vec![10, 20, 30, 40, 50];
+
+    // Akses dengan index (panic jika out of bounds)
+    let third = v[2];
+    println!("Index 2: {}", third);
+
+    // Akses aman dengan .get() — mengembalikan Option
+    match v.get(10) {
+        Some(val) => println!("Ada: {}", val),
+        None => println!("Index di luar range"),
+    }
+
+    // Iterasi
+    for item in &v {
+        println!("{}", item);
+    }
+
+    // Iterasi dengan index
+    for (i, item) in v.iter().enumerate() {
+        println!("[{}] = {}", i, item);
+    }
+}
+```
+
+### Mutasi Vec
+
+```rust
+fn main() {
+    let mut v = vec![1, 2, 3, 4, 5];
+
+    v.push(6);          // Tambah di akhir
+    v.pop();             // Hapus dari akhir -> Some(6)
+    v.insert(0, 0);      // Sisipkan di index 0
+    v.remove(2);         // Hapus index 2
+    v.retain(|&x| x > 2); // Simpan yang > 2
+    v.sort();            // Urutkan
+    v.dedup();           // Hapus duplikat berurutan
+
+    println!("{:?}", v);
+}
+```
+
+### Slicing
+
+```rust
+fn main() {
+    let v = vec![10, 20, 30, 40, 50];
+
+    let slice = &v[1..4]; // [20, 30, 40]
+    println!("Slice: {:?}", slice);
+
+    let first_three = &v[..3]; // [10, 20, 30]
+    let last_two = &v[3..];    // [40, 50]
+
+    println!("First 3: {:?}", first_three);
+    println!("Last 2: {:?}", last_two);
+}
+```
+
+## HashMap — Key-Value Store
+
+HashMap menyimpan pasangan key-value dengan lookup O(1).
+
+### Membuat dan Mengisi
+
+```rust
+use std::collections::HashMap;
+
+fn main() {
+    let mut scores: HashMap<String, u32> = HashMap::new();
+
+    scores.insert(String::from("Andi"), 85);
+    scores.insert(String::from("Budi"), 92);
+    scores.insert(String::from("Citra"), 78);
+
+    println!("{:?}", scores);
+}
+```
+
+### Akses dan Query
+
+```rust
+use std::collections::HashMap;
+
+fn main() {
+    let mut scores = HashMap::new();
+    scores.insert("Andi", 85);
+    scores.insert("Budi", 92);
+
+    // get() mengembalikan Option
+    if let Some(score) = scores.get("Andi") {
+        println!("Andi: {}", score);
+    }
+
+    // contains_key
+    println!("Ada Citra? {}", scores.contains_key("Citra"));
+
+    // Iterasi
+    for (name, score) in &scores {
+        println!("{}: {}", name, score);
+    }
+}
+```
+
+### Entry API
+
+Entry API sangat berguna untuk "insert if not exists" atau "update if exists":
+
+```rust
+use std::collections::HashMap;
+
+fn main() {
+    let mut map = HashMap::new();
+
+    // or_insert: masukkan jika belum ada
+    map.entry("key1").or_insert(0);
+    map.entry("key1").or_insert(999); // tidak berubah karena sudah ada
+
+    // or_insert_with: lazy initialization
+    map.entry("key2").or_insert_with(|| {
+        println!("Computing value...");
+        42
+    });
+
+    // Modify existing value
+    let text = "hello world hello rust hello";
+    let mut word_count = HashMap::new();
+
+    for word in text.split_whitespace() {
+        let count = word_count.entry(word).or_insert(0);
+        *count += 1;
+    }
+
+    println!("{:?}", word_count);
+}
+```
+
+## String vs &str
+
+Memahami perbedaan `String` dan `&str` sangat penting di Rust.
+
+- **String**: owned, heap-allocated, mutable, growable
+- **&str**: borrowed reference ke UTF-8 bytes, immutable
+
+```rust
+fn main() {
+    // &str — string literal, disimpan di binary
+    let s1: &str = "hello";
+
+    // String — owned, di heap
+    let s2: String = String::from("hello");
+    let s3: String = "hello".to_string();
+
+    // Konversi
+    let s4: &str = &s2;           // String -> &str (deref coercion)
+    let s5: String = s1.to_owned(); // &str -> String
+
+    println!("{} {} {} {} {}", s1, s2, s3, s4, s5);
+}
+```
+
+### Manipulasi String
+
+```rust
+fn main() {
+    let mut s = String::from("Hello");
+
+    s.push(' ');                    // Tambah satu char
+    s.push_str("World");            // Tambah &str
+    println!("{}", s);
+
+    // Concatenation
+    let s1 = String::from("Hello ");
+    let s2 = String::from("Rust");
+    let s3 = s1 + &s2; // s1 dipindahkan (moved), s2 dipinjam
+    println!("{}", s3);
+
+    // format! macro — paling fleksibel
+    let name = "Budi";
+    let age = 25;
+    let greeting = format!("Halo, {}! Umur: {}", name, age);
+    println!("{}", greeting);
+}
+```
+
+### String dan UTF-8
+
+```rust
+fn main() {
+    let hello = String::from("Привет");
+
+    println!("Bytes: {}", hello.len());        // 12 bytes
+    println!("Chars: {}", hello.chars().count()); // 6 chars
+
+    // Iterasi per karakter
+    for c in hello.chars() {
+        print!("{} ", c);
+    }
+    println!();
+
+    // Slicing harus hati-hati — harus di char boundary
+    let slice = &hello[0..4]; // "Пр" (2 chars = 4 bytes di UTF-8)
+    println!("Slice: {}", slice);
+}
+```
+
+## Kapan Pakai Collection Mana?
+
+| Kebutuhan | Collection |
+|-----------|-----------|
+| List terurut, akses by index | `Vec` |
+| Key-value lookup | `HashMap` |
+| Unique set | `HashSet` |
+| Teks yang dimiliki/dimodifikasi | `String` |
+| Teks referensi saja | `&str` |
+| FIFO queue | `VecDeque` |
+| Sorted key-value | `BTreeMap` |
+
+## Studi Kasus: Word Frequency Counter
+
+```rust
+use std::collections::HashMap;
+
+fn count_words(text: &str) -> HashMap<String, usize> {
+    let mut freq = HashMap::new();
+
+    for word in text.split_whitespace() {
+        // Normalize: lowercase, hapus punctuation
+        let clean: String = word
+            .to_lowercase()
+            .chars()
+            .filter(|c| c.is_alphanumeric())
+            .collect();
+
+        if !clean.is_empty() {
+            *freq.entry(clean).or_insert(0) += 1;
+        }
+    }
+
+    freq
+}
+
+fn top_words(freq: &HashMap<String, usize>, n: usize) -> Vec<(&String, &usize)> {
+    let mut sorted: Vec<_> = freq.iter().collect();
+    sorted.sort_by(|a, b| b.1.cmp(a.1));
+    sorted.into_iter().take(n).collect()
+}
+
+fn print_bar_chart(word: &str, count: usize, max: usize) {
+    let bar_width = 30;
+    let filled = (count as f64 / max as f64 * bar_width as f64) as usize;
+    let bar: String = "█".repeat(filled);
+    println!("{:>15} | {:<30} {}", word, bar, count);
+}
+
+fn main() {
+    let text = "
+        Rust is a systems programming language. Rust focuses on safety
+        and performance. Rust is fast. Rust is reliable. Programming in
+        Rust is enjoyable. Systems programming with Rust is the future.
+    ";
+
+    let freq = count_words(text);
+
+    println!("Total unique words: {}", freq.len());
+    println!();
+
+    let top = top_words(&freq, 10);
+    let max_count = *top.first().map(|(_, c)| *c).unwrap_or(&1);
+
+    println!("{:>15} | {:<30} Count", "Word", "Frequency");
+    println!("{}", "-".repeat(55));
+
+    for (word, count) in &top {
+        print_bar_chart(word, **count, max_count);
+    }
+}
+```
+
+## Bank Soal
+
+### Soal 1 — Vec Dasar (Mudah)
+
+Buat Vec berisi angka 1-10. Filter hanya angka genap, kuadratkan masing-masing, lalu cetak hasilnya.
+
+**Jawaban:**
+
+```rust
+fn main() {
+    let numbers: Vec<i32> = (1..=10).collect();
+    let result: Vec<i32> = numbers.iter()
+        .filter(|&&n| n % 2 == 0)
+        .map(|&n| n * n)
+        .collect();
+    println!("{:?}", result); // [4, 16, 36, 64, 100]
+}
+```
+
+### Soal 2 — HashMap Counter (Mudah)
+
+Hitung frekuensi setiap karakter dalam string "abracadabra".
+
+**Jawaban:**
+
+```rust
+use std::collections::HashMap;
+
+fn main() {
+    let text = "abracadabra";
+    let mut freq = HashMap::new();
+
+    for c in text.chars() {
+        *freq.entry(c).or_insert(0) += 1;
+    }
+
+    let mut sorted: Vec<_> = freq.iter().collect();
+    sorted.sort_by_key(|(c, _)| *c);
+
+    for (c, count) in sorted {
+        println!("'{}': {}", c, count);
+    }
+}
+```
+
+### Soal 3 — Group By (Sedang)
+
+Buat fungsi `group_by_length` yang menerima `Vec` of String dan mengembalikan `HashMap` di mana key adalah panjang string dan value adalah Vec of String dengan panjang tersebut.
+
+**Jawaban:**
+
+```rust
+use std::collections::HashMap;
+
+fn group_by_length(words: Vec<String>) -> HashMap<usize, Vec<String>> {
+    let mut groups: HashMap<usize, Vec<String>> = HashMap::new();
+
+    for word in words {
+        let len = word.len();
+        groups.entry(len).or_insert_with(Vec::new).push(word);
+    }
+
+    groups
+}
+
+fn main() {
+    let words = vec![
+        "hi", "hey", "hello", "ok", "yes", "no", "world",
+    ].into_iter().map(String::from).collect();
+
+    let grouped = group_by_length(words);
+
+    for (len, words) in &grouped {
+        println!("Length {}: {:?}", len, words);
+    }
+}
+```
+
+### Soal 4 — Vec Merge Sort (Sulit)
+
+Implementasikan merge sort untuk `Vec` of i32.
+
+**Jawaban:**
+
+```rust
+fn merge_sort(arr: &[i32]) -> Vec<i32> {
+    if arr.len() <= 1 {
+        return arr.to_vec();
+    }
+
+    let mid = arr.len() / 2;
+    let left = merge_sort(&arr[..mid]);
+    let right = merge_sort(&arr[mid..]);
+
+    merge(&left, &right)
+}
+
+fn merge(left: &[i32], right: &[i32]) -> Vec<i32> {
+    let mut result = Vec::with_capacity(left.len() + right.len());
+    let (mut i, mut j) = (0, 0);
+
+    while i < left.len() && j < right.len() {
+        if left[i] <= right[j] {
+            result.push(left[i]);
+            i += 1;
+        } else {
+            result.push(right[j]);
+            j += 1;
+        }
+    }
+
+    result.extend_from_slice(&left[i..]);
+    result.extend_from_slice(&right[j..]);
+    result
+}
+
+fn main() {
+    let arr = vec![38, 27, 43, 3, 9, 82, 10];
+    let sorted = merge_sort(&arr);
+    println!("Sorted: {:?}", sorted);
+}
+```
+
+### Soal 5 — Two Sum dengan HashMap (Sedang)
+
+Buat fungsi `two_sum` yang mencari dua angka dalam Vec yang jumlahnya sama dengan target. Kembalikan index keduanya sebagai `Option` of tuple.
+
+**Jawaban:**
+
+```rust
+use std::collections::HashMap;
+
+fn two_sum(nums: &[i32], target: i32) -> Option<(usize, usize)> {
+    let mut seen: HashMap<i32, usize> = HashMap::new();
+
+    for (i, &num) in nums.iter().enumerate() {
+        let complement = target - num;
+        if let Some(&j) = seen.get(&complement) {
+            return Some((j, i));
+        }
+        seen.insert(num, i);
+    }
+
+    None
+}
+
+fn main() {
+    let nums = vec![2, 7, 11, 15];
+    match two_sum(&nums, 9) {
+        Some((i, j)) => println!("Found: [{}, {}]", i, j),
+        None => println!("Not found"),
+    }
+}
+```
+
+### Soal 6 — String Reversal (Mudah)
+
+Buat fungsi yang membalik string dengan benar (Unicode-aware).
+
+**Jawaban:**
+
+```rust
+fn reverse_string(s: &str) -> String {
+    s.chars().rev().collect()
+}
+
+fn main() {
+    println!("{}", reverse_string("Hello, World!"));
+    println!("{}", reverse_string("Привет"));
+    println!("{}", reverse_string("こんにちは"));
+}
+```
+
+### Soal 7 — Inventory dengan HashMap (Sedang)
+
+Buat program inventory sederhana menggunakan HashMap. Support operasi: add item, remove item, update quantity, list all, total items.
+
+**Jawaban:**
+
+```rust
+use std::collections::HashMap;
+
+struct Inventory {
+    items: HashMap<String, u32>,
+}
+
+impl Inventory {
+    fn new() -> Self {
+        Inventory { items: HashMap::new() }
+    }
+
+    fn add(&mut self, name: &str, qty: u32) {
+        *self.items.entry(name.to_string()).or_insert(0) += qty;
+    }
+
+    fn remove(&mut self, name: &str) -> bool {
+        self.items.remove(name).is_some()
+    }
+
+    fn update(&mut self, name: &str, qty: u32) -> bool {
+        if let Some(val) = self.items.get_mut(name) {
+            *val = qty;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn total(&self) -> u32 {
+        self.items.values().sum()
+    }
+
+    fn list(&self) {
+        for (name, qty) in &self.items {
+            println!("  {} x{}", name, qty);
+        }
+        println!("Total items: {}", self.total());
+    }
+}
+
+fn main() {
+    let mut inv = Inventory::new();
+    inv.add("Laptop", 5);
+    inv.add("Mouse", 20);
+    inv.add("Laptop", 3);
+    inv.list();
+
+    inv.update("Mouse", 15);
+    inv.remove("Laptop");
+    println!("\nSetelah update:");
+    inv.list();
+}
+```
+
+### Soal 8 — Anagram Checker (Sedang)
+
+Buat fungsi `are_anagrams` yang mengecek apakah dua string adalah anagram (huruf sama, urutan beda).
+
+**Jawaban:**
+
+```rust
+use std::collections::HashMap;
+
+fn char_freq(s: &str) -> HashMap<char, usize> {
+    let mut freq = HashMap::new();
+    for c in s.to_lowercase().chars().filter(|c| c.is_alphabetic()) {
+        *freq.entry(c).or_insert(0) += 1;
+    }
+    freq
+}
+
+fn are_anagrams(a: &str, b: &str) -> bool {
+    char_freq(a) == char_freq(b)
+}
+
+fn main() {
+    println!("{}", are_anagrams("listen", "silent")); // true
+    println!("{}", are_anagrams("hello", "world"));   // false
+    println!("{}", are_anagrams("Astronomer", "Moon starer")); // true
+}
+```

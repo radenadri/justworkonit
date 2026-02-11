@@ -36,6 +36,7 @@ function formatCollectionLabel(name: string): string {
     "focus-wp": "Focus — WordPress",
     "furnicraft-odoo": "Furnicraft — Odoo ERP",
     "furnicraft-woo": "Furnicraft — WooCommerce",
+    "belajar-rust": "Belajar Rust",
   };
   return labels[name] ?? name.replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }

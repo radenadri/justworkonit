@@ -1,0 +1,667 @@
+# Modules, Crates & Packages
+
+Rust menggunakan module system untuk mengorganisir kode menjadi unit-unit yang terstruktur. Memahami modules, crates, dan packages penting untuk membangun proyek yang scalable.
+
+## Konsep Dasar
+
+- **Package**: proyek Cargo — berisi `Cargo.toml` dan satu atau lebih crates
+- **Crate**: unit kompilasi — library crate atau binary crate
+- **Module**: cara mengelompokkan kode dalam satu crate — mengontrol visibility dan scope
+
+## Module dengan mod
+
+```rust
+mod math {
+    pub fn add(a: i32, b: i32) -> i32 {
+        a + b
+    }
+
+    pub fn subtract(a: i32, b: i32) -> i32 {
+        a - b
+    }
+
+    // Fungsi private (default)
+    fn internal_helper() -> i32 {
+        42
+    }
+
+    // Nested module
+    pub mod advanced {
+        pub fn power(base: f64, exp: u32) -> f64 {
+            let mut result = 1.0;
+            for _ in 0..exp {
+                result *= base;
+            }
+            result
+        }
+    }
+}
+
+fn main() {
+    println!("2 + 3 = {}", math::add(2, 3));
+    println!("5 - 2 = {}", math::subtract(5, 2));
+    println!("2^10 = {}", math::advanced::power(2.0, 10));
+
+    // math::internal_helper(); // ERROR: private
+}
+```
+
+## Visibility — pub Keyword
+
+```rust
+mod account {
+    pub struct User {
+        pub username: String,
+        email: String, // private field
+    }
+
+    impl User {
+        pub fn new(username: &str, email: &str) -> User {
+            User {
+                username: username.to_string(),
+                email: email.to_string(),
+            }
+        }
+
+        pub fn email(&self) -> &str {
+            &self.email
+        }
+    }
+
+    pub enum Role {
+        Admin,
+        User,
+        Guest,
+    }
+}
+
+fn main() {
+    let user = account::User::new("budi", "budi@mail.com");
+    println!("Username: {}", user.username);
+    println!("Email: {}", user.email());
+    // println!("{}", user.email); // ERROR: field private
+
+    let role = account::Role::Admin;
+    match role {
+        account::Role::Admin => println!("Admin access"),
+        account::Role::User => println!("User access"),
+        account::Role::Guest => println!("Guest access"),
+    }
+}
+```
+
+## use Keyword dan Paths
+
+```rust
+mod shapes {
+    pub struct Circle {
+        pub radius: f64,
+    }
+
+    pub struct Rectangle {
+        pub width: f64,
+        pub height: f64,
+    }
+
+    impl Circle {
+        pub fn area(&self) -> f64 {
+            std::f64::consts::PI * self.radius * self.radius
+        }
+    }
+
+    impl Rectangle {
+        pub fn area(&self) -> f64 {
+            self.width * self.height
+        }
+    }
+}
+
+// use untuk mempersingkat path
+use shapes::Circle;
+use shapes::Rectangle;
+
+// use dengan alias
+use std::collections::HashMap as Map;
+
+// use multiple items
+// use std::io::{self, Read, Write};
+
+fn main() {
+    let c = Circle { radius: 5.0 };
+    let r = Rectangle { width: 10.0, height: 4.0 };
+
+    println!("Circle area: {:.2}", c.area());
+    println!("Rect area: {:.2}", r.area());
+
+    let mut m = Map::new();
+    m.insert("key", "value");
+}
+```
+
+## File-Based Modules
+
+Untuk proyek besar, modules dipecah ke file terpisah:
+
+### Struktur Folder
+
+```
+my_project/
+├── Cargo.toml
+└── src/
+    ├── main.rs          # binary crate root
+    ├── lib.rs           # library crate root (opsional)
+    ├── math.rs          # module math
+    ├── utils.rs         # module utils
+    └── network/         # module network (folder)
+        ├── mod.rs       # atau: network.rs di parent
+        ├── client.rs
+        └── server.rs
+```
+
+### main.rs
+
+```rust
+// Deklarasikan modules dari file terpisah
+mod math;
+mod utils;
+mod network;
+
+use math::calculator;
+use network::client;
+
+fn main() {
+    println!("{}", calculator::add(2, 3));
+    client::connect("localhost:8080");
+}
+```
+
+### math.rs
+
+```rust
+pub mod calculator {
+    pub fn add(a: i32, b: i32) -> i32 {
+        a + b
+    }
+
+    pub fn multiply(a: i32, b: i32) -> i32 {
+        a * b
+    }
+}
+```
+
+### network/mod.rs
+
+```rust
+pub mod client;
+pub mod server;
+
+pub fn version() -> &'static str {
+    "1.0.0"
+}
+```
+
+### network/client.rs
+
+```rust
+pub fn connect(addr: &str) {
+    println!("Connecting to {}", addr);
+}
+```
+
+## Re-exporting dengan pub use
+
+```rust
+mod internal {
+    pub mod deep {
+        pub mod nested {
+            pub fn useful_function() {
+                println!("Useful!");
+            }
+        }
+    }
+}
+
+// Re-export agar user tidak perlu tahu struktur internal
+pub use internal::deep::nested::useful_function;
+
+fn main() {
+    // Tanpa re-export: internal::deep::nested::useful_function()
+    // Dengan re-export:
+    useful_function();
+}
+```
+
+## Cargo.toml — Dependencies
+
+```toml
+[package]
+name = "my_project"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+rand = "0.8"
+
+[dev-dependencies]
+criterion = "0.5"
+
+[features]
+default = ["json"]
+json = ["serde"]
+```
+
+### Menggunakan External Crate
+
+```rust
+use rand::Rng;
+use serde::{Serialize, Deserialize};
+
+#[derive(Serialize, Deserialize, Debug)]
+struct Config {
+    name: String,
+    port: u16,
+}
+
+fn main() {
+    let mut rng = rand::thread_rng();
+    let n: u32 = rng.gen_range(1..=100);
+    println!("Random: {}", n);
+
+    let config = Config {
+        name: "my_app".to_string(),
+        port: 8080,
+    };
+    let json = serde_json::to_string(&config).unwrap();
+    println!("JSON: {}", json);
+}
+```
+
+## Workspaces
+
+Untuk proyek besar dengan multiple crates:
+
+```toml
+# Root Cargo.toml
+[workspace]
+members = [
+    "core",
+    "api",
+    "cli",
+]
+```
+
+## Studi Kasus: Math Utilities Library
+
+```rust
+// Ini akan jadi satu file untuk demonstrasi,
+// tapi di proyek nyata dipecah ke file terpisah.
+
+mod geometry {
+    pub fn circle_area(radius: f64) -> f64 {
+        std::f64::consts::PI * radius * radius
+    }
+
+    pub fn circle_circumference(radius: f64) -> f64 {
+        2.0 * std::f64::consts::PI * radius
+    }
+
+    pub fn rect_area(width: f64, height: f64) -> f64 {
+        width * height
+    }
+
+    pub fn triangle_area(base: f64, height: f64) -> f64 {
+        0.5 * base * height
+    }
+}
+
+mod statistics {
+    pub fn mean(data: &[f64]) -> Option<f64> {
+        if data.is_empty() {
+            return None;
+        }
+        Some(data.iter().sum::<f64>() / data.len() as f64)
+    }
+
+    pub fn median(data: &mut Vec<f64>) -> Option<f64> {
+        if data.is_empty() {
+            return None;
+        }
+        data.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let mid = data.len() / 2;
+        if data.len() % 2 == 0 {
+            Some((data[mid - 1] + data[mid]) / 2.0)
+        } else {
+            Some(data[mid])
+        }
+    }
+
+    pub fn std_dev(data: &[f64]) -> Option<f64> {
+        let avg = mean(data)?;
+        let variance = data.iter()
+            .map(|&x| (x - avg).powi(2))
+            .sum::<f64>() / data.len() as f64;
+        Some(variance.sqrt())
+    }
+}
+
+mod conversion {
+    pub fn celsius_to_fahrenheit(c: f64) -> f64 {
+        c * 9.0 / 5.0 + 32.0
+    }
+
+    pub fn fahrenheit_to_celsius(f: f64) -> f64 {
+        (f - 32.0) * 5.0 / 9.0
+    }
+
+    pub fn km_to_miles(km: f64) -> f64 {
+        km * 0.621371
+    }
+
+    pub fn kg_to_lbs(kg: f64) -> f64 {
+        kg * 2.20462
+    }
+}
+
+// Re-export for convenience
+use geometry::*;
+use statistics::*;
+use conversion::*;
+
+fn main() {
+    println!("=== Geometry ===");
+    println!("Circle area (r=5): {:.2}", circle_area(5.0));
+    println!("Circle circumference (r=5): {:.2}", circle_circumference(5.0));
+    println!("Rectangle area (10x4): {:.2}", rect_area(10.0, 4.0));
+    println!("Triangle area (6x3): {:.2}", triangle_area(6.0, 3.0));
+
+    println!("\n=== Statistics ===");
+    let mut data = vec![4.0, 8.0, 15.0, 16.0, 23.0, 42.0];
+    println!("Data: {:?}", data);
+    println!("Mean: {:.2}", mean(&data).unwrap());
+    println!("Median: {:.2}", median(&mut data).unwrap());
+    println!("Std Dev: {:.2}", std_dev(&data).unwrap());
+
+    println!("\n=== Conversion ===");
+    println!("100°C = {:.1}°F", celsius_to_fahrenheit(100.0));
+    println!("72°F = {:.1}°C", fahrenheit_to_celsius(72.0));
+    println!("10 km = {:.2} miles", km_to_miles(10.0));
+    println!("70 kg = {:.1} lbs", kg_to_lbs(70.0));
+}
+```
+
+## Bank Soal
+
+### Soal 1 — Module Dasar (Mudah)
+
+Buat module `greetings` dengan fungsi `hello` dan `goodbye` yang menerima nama.
+
+**Jawaban:**
+
+```rust
+mod greetings {
+    pub fn hello(name: &str) {
+        println!("Hello, {}!", name);
+    }
+
+    pub fn goodbye(name: &str) {
+        println!("Goodbye, {}!", name);
+    }
+}
+
+fn main() {
+    greetings::hello("Budi");
+    greetings::goodbye("Budi");
+}
+```
+
+### Soal 2 — Nested Modules (Mudah)
+
+Buat module `animals` dengan submodule `domestic` dan `wild`. Masing-masing punya fungsi yang mencetak hewan.
+
+**Jawaban:**
+
+```rust
+mod animals {
+    pub mod domestic {
+        pub fn list() -> Vec<&'static str> {
+            vec!["cat", "dog", "hamster"]
+        }
+    }
+
+    pub mod wild {
+        pub fn list() -> Vec<&'static str> {
+            vec!["lion", "tiger", "bear"]
+        }
+    }
+}
+
+use animals::domestic;
+use animals::wild;
+
+fn main() {
+    println!("Domestic: {:?}", domestic::list());
+    println!("Wild: {:?}", wild::list());
+}
+```
+
+### Soal 3 — Pub Struct dengan Private Fields (Sedang)
+
+Buat module `bank` dengan struct `Account`. Field `balance` harus private, hanya bisa diubah via methods.
+
+**Jawaban:**
+
+```rust
+mod bank {
+    pub struct Account {
+        pub owner: String,
+        balance: f64,
+    }
+
+    impl Account {
+        pub fn new(owner: &str, initial: f64) -> Account {
+            Account {
+                owner: owner.to_string(),
+                balance: initial.max(0.0),
+            }
+        }
+
+        pub fn balance(&self) -> f64 {
+            self.balance
+        }
+
+        pub fn deposit(&mut self, amount: f64) -> Result<(), String> {
+            if amount <= 0.0 {
+                return Err("Amount must be positive".to_string());
+            }
+            self.balance += amount;
+            Ok(())
+        }
+
+        pub fn withdraw(&mut self, amount: f64) -> Result<(), String> {
+            if amount > self.balance {
+                return Err("Insufficient funds".to_string());
+            }
+            self.balance -= amount;
+            Ok(())
+        }
+    }
+}
+
+fn main() {
+    let mut acc = bank::Account::new("Budi", 1000.0);
+    println!("{}: Rp{:.0}", acc.owner, acc.balance());
+
+    acc.deposit(500.0).unwrap();
+    acc.withdraw(200.0).unwrap();
+    println!("After: Rp{:.0}", acc.balance());
+}
+```
+
+### Soal 4 — Use dengan Alias (Sedang)
+
+Buat dua module yang masing-masing punya struct `Error`. Gunakan alias untuk menghindari konflik.
+
+**Jawaban:**
+
+```rust
+mod network {
+    #[derive(Debug)]
+    pub struct Error {
+        pub message: String,
+    }
+}
+
+mod database {
+    #[derive(Debug)]
+    pub struct Error {
+        pub code: i32,
+        pub message: String,
+    }
+}
+
+use network::Error as NetworkError;
+use database::Error as DbError;
+
+fn main() {
+    let ne = NetworkError { message: "Connection refused".into() };
+    let de = DbError { code: 404, message: "Record not found".into() };
+
+    println!("Network: {:?}", ne);
+    println!("Database: {:?}", de);
+}
+```
+
+### Soal 5 — Re-export (Sedang)
+
+Buat module hierarchy `app::services::auth`. Re-export `login` dan `logout` di level `app` agar mudah diakses.
+
+**Jawaban:**
+
+```rust
+mod app {
+    pub mod services {
+        pub mod auth {
+            pub fn login(user: &str) -> bool {
+                println!("{} logged in", user);
+                true
+            }
+
+            pub fn logout(user: &str) {
+                println!("{} logged out", user);
+            }
+        }
+    }
+
+    // Re-export
+    pub use services::auth::login;
+    pub use services::auth::logout;
+}
+
+fn main() {
+    // Tanpa re-export: app::services::auth::login("Budi");
+    // Dengan re-export:
+    app::login("Budi");
+    app::logout("Budi");
+}
+```
+
+### Soal 6 — Module dengan Tests (Sedang)
+
+Buat module `validator` dengan fungsi validasi. Tambahkan unit tests di dalam module.
+
+**Jawaban:**
+
+```rust
+mod validator {
+    pub fn is_email(s: &str) -> bool {
+        let parts: Vec<&str> = s.split('@').collect();
+        parts.len() == 2
+            && !parts[0].is_empty()
+            && parts[1].contains('.')
+    }
+
+    pub fn is_phone(s: &str) -> bool {
+        let digits: String = s.chars().filter(|c| c.is_numeric()).collect();
+        digits.len() >= 10 && digits.len() <= 13
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn valid_email() {
+            assert!(is_email("user@example.com"));
+        }
+
+        #[test]
+        fn invalid_email() {
+            assert!(!is_email("invalid"));
+            assert!(!is_email("@no-local.com"));
+        }
+
+        #[test]
+        fn valid_phone() {
+            assert!(is_phone("08123456789"));
+            assert!(is_phone("+62-812-345-6789"));
+        }
+
+        #[test]
+        fn invalid_phone() {
+            assert!(!is_phone("12345"));
+        }
+    }
+}
+
+fn main() {
+    println!("Email valid: {}", validator::is_email("budi@mail.com"));
+    println!("Phone valid: {}", validator::is_phone("08123456789"));
+}
+```
+
+### Soal 7 — Feature Flags (Sulit)
+
+Jelaskan dan buat contoh module yang hanya aktif jika feature tertentu diaktifkan.
+
+**Jawaban:**
+
+```rust
+// Di Cargo.toml:
+// [features]
+// default = []
+// logging = []
+// metrics = []
+
+// Conditional compilation dengan cfg
+#[cfg(feature = "logging")]
+mod logging {
+    pub fn log(msg: &str) {
+        println!("[LOG] {}", msg);
+    }
+}
+
+#[cfg(feature = "metrics")]
+mod metrics {
+    pub fn record(name: &str, value: f64) {
+        println!("[METRIC] {} = {}", name, value);
+    }
+}
+
+// Fungsi yang bekerja dengan atau tanpa features
+fn process(data: &str) {
+    #[cfg(feature = "logging")]
+    logging::log(&format!("Processing: {}", data));
+
+    println!("Result: {}", data.to_uppercase());
+
+    #[cfg(feature = "metrics")]
+    metrics::record("process_count", 1.0);
+}
+
+fn main() {
+    process("hello");
+    // Compile dengan: cargo run --features "logging,metrics"
+}
+```

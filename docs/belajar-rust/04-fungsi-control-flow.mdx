@@ -1,0 +1,540 @@
+# Fungsi & Control Flow
+
+## Fungsi (Functions)
+
+### Deklarasi Fungsi
+
+```rust
+fn greet() {
+    println!("Halo, dunia!");
+}
+
+fn main() {
+    greet(); // Memanggil fungsi
+}
+```
+
+### Parameter dan Return Type
+
+```rust
+// Function dengan parameter
+fn greet_name(name: &str) {
+    println!("Halo, {name}!");
+}
+
+// Function dengan return value
+fn add(a: i32, b: i32) -> i32 {
+    a + b // No semicolon = expression (implicit return)
+}
+
+// Explicit return
+fn divide(a: f64, b: f64) -> f64 {
+    if b == 0.0 {
+        return 0.0; // Early return
+    }
+    a / b
+}
+
+fn main() {
+    greet_name("Rust");
+    let result = add(3, 4);
+    println!("3 + 4 = {result}");
+    println!("10 / 3 = {:.2}", divide(10.0, 3.0));
+}
+```
+
+### Statements vs Expressions
+
+Konsep penting di Rust — hampir semua hal adalah **expression**:
+
+```rust
+fn main() {
+    // Statement — melakukan aksi, TIDAK mengembalikan nilai
+    let x = 5; // ini statement
+
+    // Expression — mengembalikan nilai
+    let y = {
+        let a = 3;
+        a + 1 // expression (no semicolon!) — returns 4
+    };
+    println!("y = {y}"); // 4
+
+    // if sebagai expression
+    let condition = true;
+    let number = if condition { 5 } else { 6 };
+    println!("number = {number}"); // 5
+
+    println!("x = {x}");
+}
+```
+
+**Aturan:** Jika ada semicolon di akhir, itu menjadi **statement** (return `()`). Tanpa semicolon, itu **expression** (return value).
+
+### Multiple Return Values (Tuple)
+
+```rust
+fn min_max(numbers: &[i32]) -> (i32, i32) {
+    let mut min = numbers[0];
+    let mut max = numbers[0];
+    for &n in numbers {
+        if n < min { min = n; }
+        if n > max { max = n; }
+    }
+    (min, max)
+}
+
+fn main() {
+    let nums = [5, 2, 8, 1, 9, 3];
+    let (min, max) = min_max(&nums);
+    println!("Min: {min}, Max: {max}");
+}
+```
+
+## Control Flow
+
+### if / else if / else
+
+```rust
+fn classify_number(n: i32) {
+    if n > 0 {
+        println!("{n} positif");
+    } else if n < 0 {
+        println!("{n} negatif");
+    } else {
+        println!("{n} adalah nol");
+    }
+}
+
+fn main() {
+    classify_number(5);
+    classify_number(-3);
+    classify_number(0);
+}
+```
+
+### if sebagai Expression
+
+```rust
+fn main() {
+    let age = 20;
+    let category = if age < 13 {
+        "anak-anak"
+    } else if age < 20 {
+        "remaja"
+    } else {
+        "dewasa"
+    };
+    println!("Kategori: {category}");
+}
+```
+
+## Loops
+
+### loop — Infinite Loop
+
+```rust
+fn main() {
+    let mut counter = 0;
+
+    let result = loop {
+        counter += 1;
+        if counter == 10 {
+            break counter * 2; // loop bisa return value via break
+        }
+    };
+
+    println!("Result: {result}"); // 20
+}
+```
+
+### while Loop
+
+```rust
+fn main() {
+    let mut n = 1;
+    while n <= 5 {
+        println!("{n}");
+        n += 1;
+    }
+}
+```
+
+### for Loop
+
+```rust
+fn main() {
+    // Range
+    for i in 1..=5 {
+        println!("{i}");
+    }
+
+    // Iterasi array
+    let fruits = ["apel", "jeruk", "mangga"];
+    for fruit in &fruits {
+        println!("{fruit}");
+    }
+
+    // Dengan index
+    for (i, fruit) in fruits.iter().enumerate() {
+        println!("{i}: {fruit}");
+    }
+
+    // Reverse
+    for i in (1..=5).rev() {
+        print!("{i} ");
+    }
+    println!(); // 5 4 3 2 1
+}
+```
+
+### Range Types
+
+| Syntax | Tipe | Contoh |
+|--------|------|--------|
+| `1..5` | Range (exclusive end) | 1, 2, 3, 4 |
+| `1..=5` | RangeInclusive | 1, 2, 3, 4, 5 |
+| `..5` | RangeTo | sampai 4 |
+| `1..` | RangeFrom | dari 1 seterusnya |
+| `..` | RangeFull | semua |
+
+### Nested Loops & Labels
+
+```rust
+fn main() {
+    'outer: for i in 0..5 {
+        for j in 0..5 {
+            if i + j > 5 {
+                break 'outer; // break dari outer loop
+            }
+            print!("({i},{j}) ");
+        }
+        println!();
+    }
+    println!("\nDone!");
+}
+```
+
+## match — Pattern Matching
+
+`match` adalah salah satu fitur paling powerful di Rust:
+
+```rust
+fn main() {
+    let number = 3;
+
+    match number {
+        1 => println!("satu"),
+        2 => println!("dua"),
+        3 => println!("tiga"),
+        4..=10 => println!("empat sampai sepuluh"),
+        _ => println!("lainnya"), // _ = wildcard (catch-all)
+    }
+
+    // match sebagai expression
+    let text = match number {
+        1 => "one",
+        2 => "two",
+        3 => "three",
+        _ => "other",
+    };
+    println!("{text}");
+
+    // match dengan multiple patterns
+    let day = "Senin";
+    let kind = match day {
+        "Senin" | "Selasa" | "Rabu" | "Kamis" | "Jumat" => "Hari kerja",
+        "Sabtu" | "Minggu" => "Weekend",
+        _ => "Tidak valid",
+    };
+    println!("{day} adalah {kind}");
+}
+```
+
+### match dengan Guards
+
+```rust
+fn classify(temp: i32) -> &'static str {
+    match temp {
+        t if t < 0 => "Beku",
+        0..=15 => "Dingin",
+        16..=25 => "Nyaman",
+        26..=35 => "Panas",
+        t if t > 35 => "Sangat panas",
+        _ => unreachable!(),
+    }
+}
+
+fn main() {
+    println!("20°C: {}", classify(20));
+    println!("-5°C: {}", classify(-5));
+    println!("40°C: {}", classify(40));
+}
+```
+
+---
+
+## Studi Kasus: FizzBuzz Advanced
+
+Implementasi FizzBuzz menggunakan match dan functions:
+
+```rust
+fn fizzbuzz(n: i32) -> String {
+    match (n % 3, n % 5) {
+        (0, 0) => "FizzBuzz".to_string(),
+        (0, _) => "Fizz".to_string(),
+        (_, 0) => "Buzz".to_string(),
+        _ => n.to_string(),
+    }
+}
+
+fn main() {
+    for i in 1..=30 {
+        println!("{:>2}: {}", i, fizzbuzz(i));
+    }
+}
+```
+
+---
+
+## Bank Soal
+
+### Soal 1 — Fibonacci (Mudah)
+
+Buat fungsi yang menghitung bilangan Fibonacci ke-n:
+
+**Jawaban:**
+
+```rust
+fn fibonacci(n: u32) -> u64 {
+    if n <= 1 {
+        return n as u64;
+    }
+    let mut a: u64 = 0;
+    let mut b: u64 = 1;
+    for _ in 2..=n {
+        let temp = a + b;
+        a = b;
+        b = temp;
+    }
+    b
+}
+
+fn main() {
+    for i in 0..15 {
+        println!("fib({i}) = {}", fibonacci(i));
+    }
+}
+```
+
+### Soal 2 — Bilangan Prima (Sedang)
+
+Buat fungsi yang mengecek apakah sebuah angka adalah bilangan prima:
+
+**Jawaban:**
+
+```rust
+fn is_prime(n: u32) -> bool {
+    if n < 2 {
+        return false;
+    }
+    if n == 2 || n == 3 {
+        return true;
+    }
+    if n % 2 == 0 || n % 3 == 0 {
+        return false;
+    }
+    let mut i = 5;
+    while i * i <= n {
+        if n % i == 0 || n % (i + 2) == 0 {
+            return false;
+        }
+        i += 6;
+    }
+    true
+}
+
+fn main() {
+    for n in 1..=30 {
+        if is_prime(n) {
+            print!("{n} ");
+        }
+    }
+    println!();
+}
+```
+
+### Soal 3 — Pyramid Pattern (Sedang)
+
+Buat fungsi yang mencetak piramida bintang:
+
+```
+    *
+   ***
+  *****
+ *******
+*********
+```
+
+**Jawaban:**
+
+```rust
+fn pyramid(height: usize) {
+    for i in 0..height {
+        let spaces = " ".repeat(height - i - 1);
+        let stars = "*".repeat(2 * i + 1);
+        println!("{spaces}{stars}");
+    }
+}
+
+fn main() {
+    pyramid(5);
+}
+```
+
+### Soal 4 — Kalkulator (Sedang)
+
+Buat kalkulator sederhana menggunakan match:
+
+**Jawaban:**
+
+```rust
+fn calculate(a: f64, op: char, b: f64) -> Result<f64, String> {
+    match op {
+        '+' => Ok(a + b),
+        '-' => Ok(a - b),
+        '*' => Ok(a * b),
+        '/' => {
+            if b == 0.0 {
+                Err("Division by zero".to_string())
+            } else {
+                Ok(a / b)
+            }
+        }
+        _ => Err(format!("Unknown operator: {op}")),
+    }
+}
+
+fn main() {
+    let operations = [(10.0, '+', 5.0), (10.0, '-', 3.0), (4.0, '*', 7.0), (20.0, '/', 4.0), (5.0, '/', 0.0)];
+
+    for (a, op, b) in operations {
+        match calculate(a, op, b) {
+            Ok(result) => println!("{a} {op} {b} = {result}"),
+            Err(e) => println!("{a} {op} {b} = Error: {e}"),
+        }
+    }
+}
+```
+
+### Soal 5 — Collatz Conjecture (Sedang)
+
+Implementasikan Collatz Conjecture: jika genap bagi 2, jika ganjil kalikan 3 tambah 1. Hitung berapa langkah sampai mencapai 1:
+
+**Jawaban:**
+
+```rust
+fn collatz_steps(mut n: u64) -> u32 {
+    let mut steps = 0;
+    while n != 1 {
+        if n % 2 == 0 {
+            n /= 2;
+        } else {
+            n = 3 * n + 1;
+        }
+        steps += 1;
+    }
+    steps
+}
+
+fn main() {
+    for n in [1, 2, 5, 10, 27, 100] {
+        println!("collatz({n}) = {} steps", collatz_steps(n));
+    }
+}
+```
+
+### Soal 6 — Grade Classifier (Mudah)
+
+Buat fungsi yang mengonversi skor (0-100) ke grade huruf menggunakan match:
+
+**Jawaban:**
+
+```rust
+fn get_grade(score: u32) -> &'static str {
+    match score {
+        90..=100 => "A",
+        80..=89 => "B",
+        70..=79 => "C",
+        60..=69 => "D",
+        0..=59 => "F",
+        _ => "Invalid",
+    }
+}
+
+fn main() {
+    let scores = [95, 87, 72, 63, 45, 100, 0];
+    for score in scores {
+        println!("Score {score}: Grade {}", get_grade(score));
+    }
+}
+```
+
+### Soal 7 — Nested Loop: Multiplication Table (Mudah)
+
+Cetak tabel perkalian 1-10:
+
+**Jawaban:**
+
+```rust
+fn main() {
+    print!("     ");
+    for j in 1..=10 {
+        print!("{j:>4}");
+    }
+    println!();
+    println!("{}", "-".repeat(45));
+
+    for i in 1..=10 {
+        print!("{i:>2} | ");
+        for j in 1..=10 {
+            print!("{:>4}", i * j);
+        }
+        println!();
+    }
+}
+```
+
+### Soal 8 — Number Guessing Logic (Sulit)
+
+Buat fungsi yang menjalankan binary search untuk menebak angka antara 1-100. Fungsi menerima target dan mengembalikan jumlah tebakan:
+
+**Jawaban:**
+
+```rust
+fn binary_search_guess(target: i32) -> (i32, Vec<i32>) {
+    let mut low = 1;
+    let mut high = 100;
+    let mut guesses = Vec::new();
+
+    loop {
+        let mid = (low + high) / 2;
+        guesses.push(mid);
+
+        if mid == target {
+            return (guesses.len() as i32, guesses);
+        } else if mid < target {
+            low = mid + 1;
+        } else {
+            high = mid - 1;
+        }
+    }
+}
+
+fn main() {
+    let target = 73;
+    let (count, guesses) = binary_search_guess(target);
+    println!("Target: {target}");
+    println!("Guesses: {:?}", guesses);
+    println!("Found in {count} guesses");
+}
+```

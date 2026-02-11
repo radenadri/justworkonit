@@ -1,0 +1,994 @@
+# Studi Kasus: CLI Todo App
+
+Bab ini adalah proyek hands-on lengkap. Kita akan membangun aplikasi **Todo CLI** yang fully functional menggunakan Rust. Aplikasi ini mencakup CRUD operations, persistent storage dengan JSON file, colored output, dan argument parsing dengan `clap`.
+
+## Arsitektur Proyek
+
+Aplikasi ini terdiri dari beberapa komponen utama:
+
+- **CLI Parser** — `clap` untuk parsing command dan arguments
+- **Data Model** — Struct `Todo` dan `TodoStore` dengan serialization
+- **Storage Layer** — Read/write JSON file menggunakan `serde_json`
+- **Display Layer** — Colored terminal output menggunakan `colored`
+- **Date Handling** — Timestamp menggunakan `chrono`
+
+## Setup Proyek
+
+Buat proyek baru dan tambahkan dependencies:
+
+```bash
+cargo new todo-cli
+cd todo-cli
+```
+
+Edit `Cargo.toml`:
+
+```toml
+[package]
+name = "todo-cli"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+colored = "2"
+```
+
+## Data Model
+
+Pertama, definisikan struktur data untuk Todo item:
+
+```rust
+// src/models.rs
+use chrono::{DateTime, Local};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Todo {
+    pub id: u32,
+    pub title: String,
+    pub description: Option<String>,
+    pub completed: bool,
+    pub priority: Priority,
+    pub created_at: DateTime<Local>,
+    pub completed_at: Option<DateTime<Local>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub enum Priority {
+    Low,
+    Medium,
+    High,
+}
+
+impl std::fmt::Display for Priority {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Priority::Low => write!(f, "Low"),
+            Priority::Medium => write!(f, "Medium"),
+            Priority::High => write!(f, "High"),
+        }
+    }
+}
+
+impl Todo {
+    pub fn new(id: u32, title: String, description: Option<String>, priority: Priority) -> Self {
+        Self {
+            id,
+            title,
+            description,
+            completed: false,
+            priority,
+            created_at: Local::now(),
+            completed_at: None,
+        }
+    }
+
+    pub fn mark_complete(&mut self) {
+        self.completed = true;
+        self.completed_at = Some(Local::now());
+    }
+
+    pub fn mark_incomplete(&mut self) {
+        self.completed = false;
+        self.completed_at = None;
+    }
+}
+```
+
+## Storage Layer
+
+Buat module untuk persistent storage menggunakan JSON file:
+
+```rust
+// src/store.rs
+use crate::models::{Priority, Todo};
+use std::fs;
+use std::path::PathBuf;
+
+pub struct TodoStore {
+    file_path: PathBuf,
+    pub todos: Vec<Todo>,
+}
+
+impl TodoStore {
+    pub fn new(file_path: PathBuf) -> Self {
+        let todos = Self::load_from_file(&file_path);
+        Self { file_path, todos }
+    }
+
+    fn load_from_file(path: &PathBuf) -> Vec<Todo> {
+        match fs::read_to_string(path) {
+            Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let json = serde_json::to_string_pretty(&self.todos)?;
+        if let Some(parent) = self.file_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&self.file_path, json)?;
+        Ok(())
+    }
+
+    fn next_id(&self) -> u32 {
+        self.todos.iter().map(|t| t.id).max().unwrap_or(0) + 1
+    }
+
+    pub fn add(
+        &mut self,
+        title: String,
+        description: Option<String>,
+        priority: Priority,
+    ) -> &Todo {
+        let id = self.next_id();
+        let todo = Todo::new(id, title, description, priority);
+        self.todos.push(todo);
+        self.todos.last().unwrap()
+    }
+
+    pub fn remove(&mut self, id: u32) -> Option<Todo> {
+        if let Some(pos) = self.todos.iter().position(|t| t.id == id) {
+            Some(self.todos.remove(pos))
+        } else {
+            None
+        }
+    }
+
+    pub fn get_mut(&mut self, id: u32) -> Option<&mut Todo> {
+        self.todos.iter_mut().find(|t| t.id == id)
+    }
+
+    pub fn complete(&mut self, id: u32) -> bool {
+        if let Some(todo) = self.get_mut(id) {
+            todo.mark_complete();
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn uncomplete(&mut self, id: u32) -> bool {
+        if let Some(todo) = self.get_mut(id) {
+            todo.mark_incomplete();
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn list_filtered(
+        &self,
+        show_completed: Option<bool>,
+        priority: Option<&Priority>,
+    ) -> Vec<&Todo> {
+        self.todos
+            .iter()
+            .filter(|t| {
+                if let Some(completed) = show_completed {
+                    if t.completed != completed {
+                        return false;
+                    }
+                }
+                if let Some(p) = priority {
+                    if &t.priority != p {
+                        return false;
+                    }
+                }
+                true
+            })
+            .collect()
+    }
+
+    pub fn search(&self, query: &str) -> Vec<&Todo> {
+        let query_lower = query.to_lowercase();
+        self.todos
+            .iter()
+            .filter(|t| {
+                t.title.to_lowercase().contains(&query_lower)
+                    || t.description
+                        .as_ref()
+                        .map(|d| d.to_lowercase().contains(&query_lower))
+                        .unwrap_or(false)
+            })
+            .collect()
+    }
+
+    pub fn stats(&self) -> (usize, usize, usize) {
+        let total = self.todos.len();
+        let completed = self.todos.iter().filter(|t| t.completed).count();
+        let pending = total - completed;
+        (total, completed, pending)
+    }
+}
+```
+
+## CLI Interface
+
+Setup command-line interface menggunakan `clap` derive:
+
+```rust
+// src/cli.rs
+use clap::{Parser, Subcommand, ValueEnum};
+
+#[derive(Parser)]
+#[command(name = "todo")]
+#[command(about = "A simple CLI todo application", long_about = None)]
+pub struct Cli {
+    #[command(subcommand)]
+    pub command: Commands,
+
+    /// Path to the todo data file
+    #[arg(long, default_value = "todos.json", global = true)]
+    pub file: String,
+}
+
+#[derive(Subcommand)]
+pub enum Commands {
+    /// Add a new todo item
+    Add {
+        /// Title of the todo
+        title: String,
+
+        /// Optional description
+        #[arg(short, long)]
+        desc: Option<String>,
+
+        /// Priority level
+        #[arg(short, long, value_enum, default_value_t = PriorityArg::Medium)]
+        priority: PriorityArg,
+    },
+
+    /// List all todos
+    List {
+        /// Show only completed todos
+        #[arg(long)]
+        done: bool,
+
+        /// Show only pending todos
+        #[arg(long)]
+        pending: bool,
+
+        /// Filter by priority
+        #[arg(short, long, value_enum)]
+        priority: Option<PriorityArg>,
+    },
+
+    /// Mark a todo as complete
+    Done {
+        /// ID of the todo to complete
+        id: u32,
+    },
+
+    /// Mark a todo as incomplete
+    Undo {
+        /// ID of the todo to mark incomplete
+        id: u32,
+    },
+
+    /// Remove a todo
+    Remove {
+        /// ID of the todo to remove
+        id: u32,
+    },
+
+    /// Search todos by keyword
+    Search {
+        /// Search query
+        query: String,
+    },
+
+    /// Show statistics
+    Stats,
+
+    /// Remove all completed todos
+    Clean,
+}
+
+#[derive(Clone, ValueEnum)]
+pub enum PriorityArg {
+    Low,
+    Medium,
+    High,
+}
+
+impl From<PriorityArg> for crate::models::Priority {
+    fn from(p: PriorityArg) -> Self {
+        match p {
+            PriorityArg::Low => crate::models::Priority::Low,
+            PriorityArg::Medium => crate::models::Priority::Medium,
+            PriorityArg::High => crate::models::Priority::High,
+        }
+    }
+}
+
+impl From<&crate::models::Priority> for PriorityArg {
+    fn from(p: &crate::models::Priority) -> Self {
+        match p {
+            crate::models::Priority::Low => PriorityArg::Low,
+            crate::models::Priority::Medium => PriorityArg::Medium,
+            crate::models::Priority::High => PriorityArg::High,
+        }
+    }
+}
+```
+
+## Display Layer
+
+Buat fungsi-fungsi display dengan colored output:
+
+```rust
+// src/display.rs
+use crate::models::{Priority, Todo};
+use colored::*;
+
+pub fn print_todo(todo: &Todo) {
+    let status = if todo.completed {
+        "[x]".green()
+    } else {
+        "[ ]".white()
+    };
+
+    let priority_badge = match todo.priority {
+        Priority::High => " HIGH ".on_red().white().bold(),
+        Priority::Medium => " MED ".on_yellow().black(),
+        Priority::Low => " LOW ".on_blue().white(),
+    };
+
+    let title = if todo.completed {
+        todo.title.strikethrough().dimmed().to_string()
+    } else {
+        todo.title.bold().to_string()
+    };
+
+    println!(
+        "  {} #{:<4} {} {}",
+        status,
+        todo.id.to_string().dimmed(),
+        priority_badge,
+        title
+    );
+
+    if let Some(ref desc) = todo.description {
+        println!("           {}", desc.dimmed());
+    }
+
+    let created = todo.created_at.format("%Y-%m-%d %H:%M");
+    print!("           {}", format!("Created: {}", created).dimmed());
+
+    if let Some(completed_at) = todo.completed_at {
+        let done = completed_at.format("%Y-%m-%d %H:%M");
+        print!("  {}", format!("Done: {}", done).green().dimmed());
+    }
+    println!();
+}
+
+pub fn print_todo_list(todos: &[&Todo]) {
+    if todos.is_empty() {
+        println!("  {}", "No todos found.".dimmed());
+        return;
+    }
+
+    for todo in todos {
+        print_todo(todo);
+    }
+    println!();
+}
+
+pub fn print_stats(total: usize, completed: usize, pending: usize) {
+    println!();
+    println!("  {}", "Todo Statistics".bold().underline());
+    println!("  Total:     {}", total.to_string().bold());
+    println!("  Completed: {}", completed.to_string().green().bold());
+    println!("  Pending:   {}", pending.to_string().yellow().bold());
+
+    if total > 0 {
+        let percentage = (completed as f64 / total as f64 * 100.0) as u32;
+        let bar_filled = percentage as usize / 5;
+        let bar_empty = 20 - bar_filled;
+        let bar = format!(
+            "[{}{}] {}%",
+            "#".repeat(bar_filled).green(),
+            "-".repeat(bar_empty).dimmed(),
+            percentage
+        );
+        println!("  Progress:  {}", bar);
+    }
+    println!();
+}
+
+pub fn print_success(message: &str) {
+    println!("  {} {}", "✓".green().bold(), message);
+}
+
+pub fn print_error(message: &str) {
+    println!("  {} {}", "✗".red().bold(), message);
+}
+
+pub fn print_header(title: &str) {
+    println!();
+    println!("  {}", title.bold().underline());
+}
+```
+
+## Main Entry Point
+
+Gabungkan semua module di `main.rs`:
+
+```rust
+// src/main.rs
+mod cli;
+mod display;
+mod models;
+mod store;
+
+use clap::Parser;
+use cli::{Cli, Commands, PriorityArg};
+use models::Priority;
+use std::path::PathBuf;
+use store::TodoStore;
+
+fn main() {
+    let cli = Cli::parse();
+    let file_path = PathBuf::from(&cli.file);
+    let mut store = TodoStore::new(file_path);
+
+    match cli.command {
+        Commands::Add {
+            title,
+            desc,
+            priority,
+        } => {
+            let priority: Priority = priority.into();
+            let todo = store.add(title, desc, priority);
+            display::print_success(&format!("Added todo #{}: {}", todo.id, todo.title));
+        }
+
+        Commands::List {
+            done,
+            pending,
+            priority,
+        } => {
+            let show_completed = if done {
+                Some(true)
+            } else if pending {
+                Some(false)
+            } else {
+                None
+            };
+
+            let priority_filter: Option<Priority> =
+                priority.map(|p| p.into());
+
+            let todos = store.list_filtered(
+                show_completed,
+                priority_filter.as_ref(),
+            );
+
+            let header = match (done, pending) {
+                (true, _) => "Completed Todos",
+                (_, true) => "Pending Todos",
+                _ => "All Todos",
+            };
+
+            display::print_header(header);
+            display::print_todo_list(&todos);
+        }
+
+        Commands::Done { id } => {
+            if store.complete(id) {
+                display::print_success(&format!("Todo #{} marked as complete", id));
+            } else {
+                display::print_error(&format!("Todo #{} not found", id));
+            }
+        }
+
+        Commands::Undo { id } => {
+            if store.uncomplete(id) {
+                display::print_success(&format!("Todo #{} marked as incomplete", id));
+            } else {
+                display::print_error(&format!("Todo #{} not found", id));
+            }
+        }
+
+        Commands::Remove { id } => {
+            if let Some(todo) = store.remove(id) {
+                display::print_success(&format!("Removed todo #{}: {}", todo.id, todo.title));
+            } else {
+                display::print_error(&format!("Todo #{} not found", id));
+            }
+        }
+
+        Commands::Search { query } => {
+            let results = store.search(&query);
+            display::print_header(&format!("Search results for: \"{}\"", query));
+            display::print_todo_list(&results);
+        }
+
+        Commands::Stats => {
+            let (total, completed, pending) = store.stats();
+            display::print_stats(total, completed, pending);
+        }
+
+        Commands::Clean => {
+            let before = store.todos.len();
+            store.todos.retain(|t| !t.completed);
+            let removed = before - store.todos.len();
+            display::print_success(&format!("Removed {} completed todos", removed));
+        }
+    }
+
+    if let Err(e) = store.save() {
+        display::print_error(&format!("Failed to save: {}", e));
+    }
+}
+```
+
+## Penggunaan
+
+Setelah `cargo build --release`, berikut cara menggunakan aplikasi:
+
+```bash
+# Menambah todo
+todo-cli add "Belajar Rust ownership" --desc "Bab 5 buku Rust" --priority high
+todo-cli add "Review PR team" --priority medium
+todo-cli add "Update README" --priority low
+
+# Melihat semua todos
+todo-cli list
+
+# Filter berdasarkan status
+todo-cli list --pending
+todo-cli list --done
+
+# Filter berdasarkan priority
+todo-cli list --priority high
+
+# Menandai selesai
+todo-cli done 1
+
+# Menandai belum selesai
+todo-cli undo 1
+
+# Mencari todo
+todo-cli search "rust"
+
+# Melihat statistik
+todo-cli stats
+
+# Menghapus todo
+todo-cli remove 2
+
+# Menghapus semua yang sudah selesai
+todo-cli clean
+
+# Menggunakan file custom
+todo-cli --file work-todos.json add "Deploy v2"
+```
+
+## Contoh Output
+
+Berikut contoh output dari perintah `todo-cli list`:
+
+```text
+  All Todos
+
+  [ ] #1    HIGH  Belajar Rust ownership
+           Bab 5 buku Rust
+           Created: 2025-01-15 10:30
+
+  [x] #2    MED   Review PR team
+           Created: 2025-01-15 10:31  Done: 2025-01-15 14:20
+
+  [ ] #3    LOW   Update README
+           Created: 2025-01-15 10:32
+```
+
+Dan output dari `todo-cli stats`:
+
+```text
+  Todo Statistics
+  Total:     3
+  Completed: 1
+  Pending:   2
+  Progress:  [######--------------] 33%
+```
+
+## Pelajaran yang Dipraktekkan
+
+Proyek ini menggabungkan banyak konsep dari bab-bab sebelumnya:
+
+| Konsep | Penggunaan |
+|--------|-----------|
+| Ownership dan Borrowing | Store memiliki Vec, methods meminjam references |
+| Struct dan Enum | Todo struct, Priority enum, Commands enum |
+| Pattern Matching | Match pada Commands, Option, Priority |
+| Error Handling | Result untuk file I/O, Option untuk lookup |
+| Traits | Display untuk Priority, From untuk konversi |
+| Modules | Terpisah jadi cli, models, store, display |
+| Collections | Vec untuk list, iterator methods untuk filter/search |
+| Derive Macros | Serialize, Deserialize, Parser, Subcommand |
+| Closures | Digunakan di filter, map, position |
+| Lifetime | References di list_filtered dan search |
+
+## Bank Soal
+
+### Soal 1 — Tambahkan fitur edit title (Sedang)
+
+Tambahkan subcommand `edit` yang memungkinkan user mengubah title dari todo yang sudah ada.
+
+**Jawaban:**
+
+```rust
+// Tambahkan di cli.rs pada enum Commands:
+/// Edit a todo's title
+Edit {
+    /// ID of the todo to edit
+    id: u32,
+    /// New title
+    title: String,
+},
+
+// Tambahkan di store.rs:
+pub fn edit_title(&mut self, id: u32, new_title: String) -> bool {
+    if let Some(todo) = self.get_mut(id) {
+        todo.title = new_title;
+        true
+    } else {
+        false
+    }
+}
+
+// Tambahkan di main.rs match:
+Commands::Edit { id, title } => {
+    if store.edit_title(id, title.clone()) {
+        display::print_success(&format!("Todo #{} updated: {}", id, title));
+    } else {
+        display::print_error(&format!("Todo #{} not found", id));
+    }
+}
+```
+
+### Soal 2 — Tambahkan fitur due date (Sulit)
+
+Tambahkan optional due date pada Todo dan tampilkan warning jika sudah lewat.
+
+**Jawaban:**
+
+```rust
+use chrono::{NaiveDate, Local};
+
+// Tambahkan field di struct Todo:
+pub due_date: Option<NaiveDate>,
+
+// Tambahkan di Todo::new():
+due_date: None,
+
+// Tambahkan method:
+impl Todo {
+    pub fn set_due_date(&mut self, date: NaiveDate) {
+        self.due_date = Some(date);
+    }
+
+    pub fn is_overdue(&self) -> bool {
+        if self.completed {
+            return false;
+        }
+        if let Some(due) = self.due_date {
+            due < Local::now().date_naive()
+        } else {
+            false
+        }
+    }
+}
+
+// Update display di print_todo:
+if let Some(due) = todo.due_date {
+    if todo.is_overdue() {
+        print!("  {}", format!("OVERDUE: {}", due).red().bold());
+    } else {
+        print!("  {}", format!("Due: {}", due).dimmed());
+    }
+}
+```
+
+### Soal 3 — Implementasikan sort (Sedang)
+
+Tambahkan opsi sorting pada command `list`: by priority, by date, atau by status.
+
+**Jawaban:**
+
+```rust
+// Di cli.rs, tambahkan enum dan arg:
+#[derive(Clone, ValueEnum)]
+pub enum SortBy {
+    Priority,
+    Date,
+    Status,
+}
+
+// Pada Commands::List, tambahkan:
+#[arg(short, long, value_enum)]
+sort: Option<SortBy>,
+
+// Di store.rs, tambahkan method:
+pub fn list_sorted(&self, sort_by: &SortBy) -> Vec<&Todo> {
+    let mut todos: Vec<&Todo> = self.todos.iter().collect();
+    match sort_by {
+        SortBy::Priority => todos.sort_by(|a, b| {
+            let priority_val = |p: &Priority| match p {
+                Priority::High => 0,
+                Priority::Medium => 1,
+                Priority::Low => 2,
+            };
+            priority_val(&a.priority).cmp(&priority_val(&b.priority))
+        }),
+        SortBy::Date => todos.sort_by(|a, b| b.created_at.cmp(&a.created_at)),
+        SortBy::Status => todos.sort_by_key(|t| t.completed),
+    }
+    todos
+}
+```
+
+### Soal 4 — Export ke CSV (Sedang)
+
+Tambahkan subcommand `export` yang mengekspor semua todos ke format CSV.
+
+**Jawaban:**
+
+```rust
+// Di cli.rs:
+/// Export todos to CSV
+Export {
+    /// Output file path
+    #[arg(default_value = "todos.csv")]
+    output: String,
+},
+
+// Di store.rs:
+pub fn export_csv(&self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    use std::fs::File;
+    use std::io::Write;
+
+    let mut file = File::create(path)?;
+    writeln!(file, "id,title,description,priority,completed,created_at")?;
+
+    for todo in &self.todos {
+        writeln!(
+            file,
+            "{},\"{}\",\"{}\",{},{},{}",
+            todo.id,
+            todo.title.replace('"', "\"\""),
+            todo.description.as_deref().unwrap_or("").replace('"', "\"\""),
+            todo.priority,
+            todo.completed,
+            todo.created_at.format("%Y-%m-%d %H:%M:%S")
+        )?;
+    }
+    Ok(())
+}
+
+// Di main.rs:
+Commands::Export { output } => {
+    match store.export_csv(&output) {
+        Ok(()) => display::print_success(&format!("Exported to {}", output)),
+        Err(e) => display::print_error(&format!("Export failed: {}", e)),
+    }
+}
+```
+
+### Soal 5 — Tambahkan tags/labels (Sulit)
+
+Tambahkan sistem tags pada todo sehingga user bisa menambah multiple tags dan filter berdasarkan tag.
+
+**Jawaban:**
+
+```rust
+// Tambahkan field di struct Todo:
+pub tags: Vec<String>,
+
+// Tambahkan di Todo::new():
+tags: Vec::new(),
+
+// Tambahkan methods:
+impl Todo {
+    pub fn add_tag(&mut self, tag: String) {
+        let tag = tag.to_lowercase();
+        if !self.tags.contains(&tag) {
+            self.tags.push(tag);
+        }
+    }
+
+    pub fn remove_tag(&mut self, tag: &str) -> bool {
+        let tag = tag.to_lowercase();
+        if let Some(pos) = self.tags.iter().position(|t| t == &tag) {
+            self.tags.remove(pos);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn has_tag(&self, tag: &str) -> bool {
+        self.tags.contains(&tag.to_lowercase())
+    }
+}
+
+// Di store.rs:
+pub fn list_by_tag(&self, tag: &str) -> Vec<&Todo> {
+    self.todos.iter().filter(|t| t.has_tag(tag)).collect()
+}
+
+// Di cli.rs:
+/// Add a tag to a todo
+Tag {
+    id: u32,
+    tag: String,
+},
+/// Remove a tag from a todo
+Untag {
+    id: u32,
+    tag: String,
+},
+/// List todos by tag
+ByTag {
+    tag: String,
+},
+
+// Di main.rs:
+Commands::Tag { id, tag } => {
+    if let Some(todo) = store.get_mut(id) {
+        todo.add_tag(tag.clone());
+        display::print_success(&format!("Added tag '{}' to #{}", tag, id));
+    } else {
+        display::print_error(&format!("Todo #{} not found", id));
+    }
+}
+Commands::Untag { id, tag } => {
+    if let Some(todo) = store.get_mut(id) {
+        if todo.remove_tag(&tag) {
+            display::print_success(&format!("Removed tag '{}' from #{}", tag, id));
+        } else {
+            display::print_error(&format!("Tag '{}' not found on #{}", tag, id));
+        }
+    } else {
+        display::print_error(&format!("Todo #{} not found", id));
+    }
+}
+Commands::ByTag { tag } => {
+    let results = store.list_by_tag(&tag);
+    display::print_header(&format!("Todos with tag: {}", tag));
+    display::print_todo_list(&results);
+}
+```
+
+### Soal 6 — Tambahkan interactive mode (Sulit)
+
+Implementasikan mode interaktif dimana user bisa menjalankan commands berturut-turut tanpa restart program.
+
+**Jawaban:**
+
+```rust
+// Di cli.rs:
+/// Enter interactive mode
+Interactive,
+
+// Di main.rs, tambahkan fungsi:
+fn interactive_mode(store: &mut TodoStore) {
+    use std::io::{self, Write};
+
+    println!();
+    display::print_header("Interactive Mode (type 'help' or 'quit')");
+
+    loop {
+        print!("  todo> ");
+        io::stdout().flush().unwrap();
+
+        let mut input = String::new();
+        if io::stdin().read_line(&mut input).is_err() {
+            break;
+        }
+
+        let input = input.trim();
+        if input.is_empty() {
+            continue;
+        }
+
+        match input {
+            "quit" | "exit" | "q" => {
+                display::print_success("Goodbye!");
+                break;
+            }
+            "help" | "h" => {
+                println!("  Commands: list, stats, clean, quit");
+                println!("  add <title>        Add a new todo");
+                println!("  done <id>          Mark as complete");
+                println!("  remove <id>        Remove a todo");
+                println!("  search <query>     Search todos");
+            }
+            "list" | "ls" => {
+                display::print_header("All Todos");
+                let todos = store.list_filtered(None, None);
+                display::print_todo_list(&todos);
+            }
+            "stats" => {
+                let (total, completed, pending) = store.stats();
+                display::print_stats(total, completed, pending);
+            }
+            "clean" => {
+                let before = store.todos.len();
+                store.todos.retain(|t| !t.completed);
+                let removed = before - store.todos.len();
+                display::print_success(&format!("Removed {} completed", removed));
+            }
+            _ if input.starts_with("add ") => {
+                let title = input[4..].to_string();
+                let todo = store.add(title, None, crate::models::Priority::Medium);
+                display::print_success(&format!("Added #{}: {}", todo.id, todo.title));
+            }
+            _ if input.starts_with("done ") => {
+                if let Ok(id) = input[5..].parse::<u32>() {
+                    if store.complete(id) {
+                        display::print_success(&format!("#{} completed", id));
+                    } else {
+                        display::print_error(&format!("#{} not found", id));
+                    }
+                }
+            }
+            _ if input.starts_with("remove ") => {
+                if let Ok(id) = input[7..].parse::<u32>() {
+                    if store.remove(id).is_some() {
+                        display::print_success(&format!("#{} removed", id));
+                    } else {
+                        display::print_error(&format!("#{} not found", id));
+                    }
+                }
+            }
+            _ if input.starts_with("search ") => {
+                let query = &input[7..];
+                let results = store.search(query);
+                display::print_header(&format!("Results for \"{}\"", query));
+                display::print_todo_list(&results);
+            }
+            _ => {
+                display::print_error(&format!("Unknown command: {}", input));
+            }
+        }
+
+        if let Err(e) = store.save() {
+            display::print_error(&format!("Save failed: {}", e));
+        }
+    }
+}
+
+// Di main.rs match, tambahkan:
+Commands::Interactive => {
+    interactive_mode(&mut store);
+    return; // Skip final save since interactive mode saves per command
+}
+```

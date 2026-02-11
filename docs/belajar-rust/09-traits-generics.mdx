@@ -1,0 +1,871 @@
+# Traits & Generics
+
+Traits mendefinisikan shared behavior — mirip interface di bahasa lain. Generics memungkinkan kode yang bekerja dengan berbagai tipe. Keduanya adalah fondasi abstraksi di Rust.
+
+## Mendefinisikan Trait
+
+```rust
+trait Summary {
+    fn summarize(&self) -> String;
+
+    // Default implementation
+    fn preview(&self) -> String {
+        format!("(Read more: {}...)", &self.summarize()[..20.min(self.summarize().len())])
+    }
+}
+
+struct Article {
+    title: String,
+    author: String,
+    content: String,
+}
+
+impl Summary for Article {
+    fn summarize(&self) -> String {
+        format!("{} by {}", self.title, self.author)
+    }
+    // preview() menggunakan default implementation
+}
+
+struct Tweet {
+    username: String,
+    content: String,
+}
+
+impl Summary for Tweet {
+    fn summarize(&self) -> String {
+        format!("@{}: {}", self.username, self.content)
+    }
+
+    // Override default
+    fn preview(&self) -> String {
+        format!("Tweet from @{}", self.username)
+    }
+}
+
+fn main() {
+    let article = Article {
+        title: String::from("Rust is Amazing"),
+        author: String::from("Budi"),
+        content: String::from("Lorem ipsum..."),
+    };
+
+    let tweet = Tweet {
+        username: String::from("rustlang"),
+        content: String::from("Rust 2024 is here!"),
+    };
+
+    println!("{}", article.summarize());
+    println!("{}", article.preview());
+    println!("{}", tweet.summarize());
+    println!("{}", tweet.preview());
+}
+```
+
+## Generics
+
+Generics memungkinkan fungsi dan struct bekerja dengan tipe apapun:
+
+### Generic Functions
+
+```rust
+fn largest<T: PartialOrd>(list: &[T]) -> &T {
+    let mut largest = &list[0];
+    for item in &list[1..] {
+        if item > largest {
+            largest = item;
+        }
+    }
+    largest
+}
+
+fn first_or_default<T: Default + Clone>(list: &[T]) -> T {
+    list.first().cloned().unwrap_or_default()
+}
+
+fn main() {
+    let numbers = vec![34, 50, 25, 100, 65];
+    println!("Largest: {}", largest(&numbers));
+
+    let chars = vec!['y', 'm', 'a', 'q'];
+    println!("Largest: {}", largest(&chars));
+
+    let empty: Vec<i32> = vec![];
+    let nums = vec![10, 20];
+    println!("First: {}", first_or_default(&nums));
+    println!("First: {}", first_or_default(&empty));
+}
+```
+
+### Generic Structs
+
+```rust
+#[derive(Debug)]
+struct Pair<T> {
+    first: T,
+    second: T,
+}
+
+impl<T> Pair<T> {
+    fn new(first: T, second: T) -> Self {
+        Pair { first, second }
+    }
+}
+
+impl<T: PartialOrd + std::fmt::Display> Pair<T> {
+    fn larger(&self) -> &T {
+        if self.first >= self.second {
+            &self.first
+        } else {
+            &self.second
+        }
+    }
+}
+
+fn main() {
+    let pair = Pair::new(10, 20);
+    println!("Larger: {}", pair.larger());
+
+    let pair2 = Pair::new("alpha", "beta");
+    println!("Larger: {}", pair2.larger());
+}
+```
+
+### Generic Enums
+
+```rust
+#[derive(Debug)]
+enum Either<L, R> {
+    Left(L),
+    Right(R),
+}
+
+impl<L, R> Either<L, R> {
+    fn is_left(&self) -> bool {
+        matches!(self, Either::Left(_))
+    }
+
+    fn is_right(&self) -> bool {
+        matches!(self, Either::Right(_))
+    }
+}
+
+fn main() {
+    let a: Either<i32, String> = Either::Left(42);
+    let b: Either<i32, String> = Either::Right("hello".to_string());
+
+    println!("{:?} is_left: {}", a, a.is_left());
+    println!("{:?} is_right: {}", b, b.is_right());
+}
+```
+
+## Trait Bounds dan Where Clauses
+
+```rust
+use std::fmt::Display;
+
+// Trait bound syntax
+fn print_largest<T: PartialOrd + Display>(a: T, b: T) {
+    if a >= b {
+        println!("Largest: {}", a);
+    } else {
+        println!("Largest: {}", b);
+    }
+}
+
+// Where clause — lebih readable untuk banyak bounds
+fn complex_function<T, U>(t: T, u: U) -> String
+where
+    T: Display + Clone,
+    U: Display + std::fmt::Debug,
+{
+    format!("{} and {:?}", t, u)
+}
+
+fn main() {
+    print_largest(10, 20);
+    print_largest("apple", "banana");
+
+    println!("{}", complex_function("hello", 42));
+}
+```
+
+## impl Trait — Syntax Ringkas
+
+```rust
+// Sebagai parameter (sugar untuk trait bound)
+fn notify(item: &impl Summary) {
+    println!("Breaking: {}", item.summarize());
+}
+
+// Sebagai return type
+fn create_summary() -> impl Summary {
+    Tweet {
+        username: String::from("bot"),
+        content: String::from("Auto-generated tweet"),
+    }
+}
+
+trait Summary {
+    fn summarize(&self) -> String;
+}
+
+struct Tweet {
+    username: String,
+    content: String,
+}
+
+impl Summary for Tweet {
+    fn summarize(&self) -> String {
+        format!("@{}: {}", self.username, self.content)
+    }
+}
+
+fn main() {
+    let t = create_summary();
+    notify(&t);
+}
+```
+
+## Trait Objects — Dynamic Dispatch
+
+Trait objects menggunakan `dyn` untuk dynamic dispatch saat runtime:
+
+```rust
+trait Animal {
+    fn name(&self) -> &str;
+    fn sound(&self) -> &str;
+}
+
+struct Dog { name: String }
+struct Cat { name: String }
+
+impl Animal for Dog {
+    fn name(&self) -> &str { &self.name }
+    fn sound(&self) -> &str { "Woof!" }
+}
+
+impl Animal for Cat {
+    fn name(&self) -> &str { &self.name }
+    fn sound(&self) -> &str { "Meow!" }
+}
+
+fn print_animal(animal: &dyn Animal) {
+    println!("{} says {}", animal.name(), animal.sound());
+}
+
+fn main() {
+    let animals: Vec<Box<dyn Animal>> = vec![
+        Box::new(Dog { name: String::from("Rex") }),
+        Box::new(Cat { name: String::from("Whiskers") }),
+        Box::new(Dog { name: String::from("Buddy") }),
+    ];
+
+    for animal in &animals {
+        print_animal(animal.as_ref());
+    }
+}
+```
+
+## Associated Types
+
+```rust
+trait Iterator {
+    type Item; // Associated type
+
+    fn next(&mut self) -> Option<Self::Item>;
+}
+
+struct Counter {
+    current: u32,
+    max: u32,
+}
+
+impl Counter {
+    fn new(max: u32) -> Self {
+        Counter { current: 0, max }
+    }
+}
+
+impl std::iter::Iterator for Counter {
+    type Item = u32;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current < self.max {
+            self.current += 1;
+            Some(self.current)
+        } else {
+            None
+        }
+    }
+}
+
+fn main() {
+    let counter = Counter::new(5);
+    let sum: u32 = counter.sum();
+    println!("Sum 1..5 = {}", sum); // 15
+}
+```
+
+## Common Std Traits
+
+```rust
+// Debug — untuk {:?} formatting
+#[derive(Debug)]
+struct Point {
+    x: f64,
+    y: f64,
+}
+
+// Display — untuk {} formatting
+impl std::fmt::Display for Point {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({}, {})", self.x, self.y)
+    }
+}
+
+// Clone dan Copy
+#[derive(Debug, Clone, Copy)]
+struct Color(u8, u8, u8);
+
+// PartialEq dan Eq
+#[derive(Debug, PartialEq)]
+struct Student {
+    name: String,
+    grade: u32,
+}
+
+// From dan Into
+struct Celsius(f64);
+struct Fahrenheit(f64);
+
+impl From<Celsius> for Fahrenheit {
+    fn from(c: Celsius) -> Self {
+        Fahrenheit(c.0 * 9.0 / 5.0 + 32.0)
+    }
+}
+
+fn main() {
+    let p = Point { x: 3.0, y: 4.0 };
+    println!("Debug: {:?}", p);
+    println!("Display: {}", p);
+
+    let c1 = Color(255, 0, 0);
+    let c2 = c1; // Copy, bukan move
+    println!("{:?} {:?}", c1, c2);
+
+    let s1 = Student { name: "Budi".into(), grade: 90 };
+    let s2 = Student { name: "Budi".into(), grade: 90 };
+    println!("Equal: {}", s1 == s2);
+
+    let temp: Fahrenheit = Celsius(100.0).into();
+    println!("100°C = {}°F", temp.0);
+}
+```
+
+## Studi Kasus: Shape Trait System
+
+```rust
+use std::f64::consts::PI;
+
+trait Shape: std::fmt::Display {
+    fn area(&self) -> f64;
+    fn perimeter(&self) -> f64;
+
+    fn describe(&self) {
+        println!("{}", self);
+        println!("  Area: {:.2}", self.area());
+        println!("  Perimeter: {:.2}", self.perimeter());
+    }
+}
+
+struct Circle {
+    radius: f64,
+}
+
+struct Rectangle {
+    width: f64,
+    height: f64,
+}
+
+struct Triangle {
+    a: f64,
+    b: f64,
+    c: f64,
+}
+
+impl Circle {
+    fn new(radius: f64) -> Self {
+        Circle { radius }
+    }
+}
+
+impl Shape for Circle {
+    fn area(&self) -> f64 {
+        PI * self.radius * self.radius
+    }
+
+    fn perimeter(&self) -> f64 {
+        2.0 * PI * self.radius
+    }
+}
+
+impl std::fmt::Display for Circle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Circle(r={})", self.radius)
+    }
+}
+
+impl Rectangle {
+    fn new(width: f64, height: f64) -> Self {
+        Rectangle { width, height }
+    }
+}
+
+impl Shape for Rectangle {
+    fn area(&self) -> f64 {
+        self.width * self.height
+    }
+
+    fn perimeter(&self) -> f64 {
+        2.0 * (self.width + self.height)
+    }
+}
+
+impl std::fmt::Display for Rectangle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Rectangle({}x{})", self.width, self.height)
+    }
+}
+
+impl Triangle {
+    fn new(a: f64, b: f64, c: f64) -> Option<Self> {
+        if a + b > c && b + c > a && a + c > b {
+            Some(Triangle { a, b, c })
+        } else {
+            None
+        }
+    }
+}
+
+impl Shape for Triangle {
+    fn area(&self) -> f64 {
+        let s = self.perimeter() / 2.0;
+        (s * (s - self.a) * (s - self.b) * (s - self.c)).sqrt()
+    }
+
+    fn perimeter(&self) -> f64 {
+        self.a + self.b + self.c
+    }
+}
+
+impl std::fmt::Display for Triangle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Triangle({}, {}, {})", self.a, self.b, self.c)
+    }
+}
+
+fn largest_area(shapes: &[Box<dyn Shape>]) -> Option<usize> {
+    shapes
+        .iter()
+        .enumerate()
+        .max_by(|(_, a), (_, b)| a.area().partial_cmp(&b.area()).unwrap())
+        .map(|(i, _)| i)
+}
+
+fn total_area(shapes: &[Box<dyn Shape>]) -> f64 {
+    shapes.iter().map(|s| s.area()).sum()
+}
+
+fn main() {
+    let shapes: Vec<Box<dyn Shape>> = vec![
+        Box::new(Circle::new(5.0)),
+        Box::new(Rectangle::new(10.0, 4.0)),
+        Box::new(Triangle::new(3.0, 4.0, 5.0).unwrap()),
+    ];
+
+    for shape in &shapes {
+        shape.describe();
+        println!();
+    }
+
+    println!("Total area: {:.2}", total_area(&shapes));
+
+    if let Some(i) = largest_area(&shapes) {
+        println!("Largest shape: {}", shapes[i]);
+    }
+}
+```
+
+## Bank Soal
+
+### Soal 1 — Trait Dasar (Mudah)
+
+Buat trait `Printable` dengan method `print_info`. Implementasikan untuk struct `Book` dan `Movie`.
+
+**Jawaban:**
+
+```rust
+trait Printable {
+    fn print_info(&self);
+}
+
+struct Book {
+    title: String,
+    pages: u32,
+}
+
+struct Movie {
+    title: String,
+    duration_min: u32,
+}
+
+impl Printable for Book {
+    fn print_info(&self) {
+        println!("Book: {} ({} pages)", self.title, self.pages);
+    }
+}
+
+impl Printable for Movie {
+    fn print_info(&self) {
+        println!("Movie: {} ({} min)", self.title, self.duration_min);
+    }
+}
+
+fn main() {
+    let items: Vec<Box<dyn Printable>> = vec![
+        Box::new(Book { title: "Rust".into(), pages: 500 }),
+        Box::new(Movie { title: "Inception".into(), duration_min: 148 }),
+    ];
+
+    for item in &items {
+        item.print_info();
+    }
+}
+```
+
+### Soal 2 — Generic Function (Mudah)
+
+Buat fungsi generic `min_value` yang mengembalikan nilai terkecil dari slice.
+
+**Jawaban:**
+
+```rust
+fn min_value<T: PartialOrd>(list: &[T]) -> Option<&T> {
+    let mut min = list.first()?;
+    for item in &list[1..] {
+        if item < min {
+            min = item;
+        }
+    }
+    Some(min)
+}
+
+fn main() {
+    println!("{:?}", min_value(&[3, 1, 4, 1, 5]));   // Some(1)
+    println!("{:?}", min_value(&["c", "a", "b"]));     // Some("a")
+    println!("{:?}", min_value::<i32>(&[]));            // None
+}
+```
+
+### Soal 3 — Generic Struct (Sedang)
+
+Buat generic struct `Stack` dengan push, pop, peek, is_empty, dan size.
+
+**Jawaban:**
+
+```rust
+struct Stack<T> {
+    elements: Vec<T>,
+}
+
+impl<T> Stack<T> {
+    fn new() -> Self {
+        Stack { elements: Vec::new() }
+    }
+
+    fn push(&mut self, item: T) {
+        self.elements.push(item);
+    }
+
+    fn pop(&mut self) -> Option<T> {
+        self.elements.pop()
+    }
+
+    fn peek(&self) -> Option<&T> {
+        self.elements.last()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.elements.is_empty()
+    }
+
+    fn size(&self) -> usize {
+        self.elements.len()
+    }
+}
+
+fn main() {
+    let mut stack = Stack::new();
+    stack.push(1);
+    stack.push(2);
+    stack.push(3);
+
+    println!("Size: {}", stack.size());
+    println!("Peek: {:?}", stack.peek());
+    println!("Pop: {:?}", stack.pop());
+    println!("Size: {}", stack.size());
+}
+```
+
+### Soal 4 — Trait dengan Default Implementation (Sedang)
+
+Buat trait `Validator` dengan method `validate` (required) dan `validate_and_report` (default). Implementasikan untuk `EmailValidator` dan `AgeValidator`.
+
+**Jawaban:**
+
+```rust
+trait Validator {
+    fn name(&self) -> &str;
+    fn validate(&self, input: &str) -> Result<(), String>;
+
+    fn validate_and_report(&self, input: &str) {
+        match self.validate(input) {
+            Ok(()) => println!("[{}] '{}' is valid", self.name(), input),
+            Err(e) => println!("[{}] '{}' is invalid: {}", self.name(), input, e),
+        }
+    }
+}
+
+struct EmailValidator;
+struct AgeValidator;
+
+impl Validator for EmailValidator {
+    fn name(&self) -> &str { "Email" }
+
+    fn validate(&self, input: &str) -> Result<(), String> {
+        if input.contains('@') && input.contains('.') {
+            Ok(())
+        } else {
+            Err("Must contain @ and .".to_string())
+        }
+    }
+}
+
+impl Validator for AgeValidator {
+    fn name(&self) -> &str { "Age" }
+
+    fn validate(&self, input: &str) -> Result<(), String> {
+        let age: i32 = input.parse().map_err(|_| "Not a number".to_string())?;
+        if (0..=150).contains(&age) {
+            Ok(())
+        } else {
+            Err(format!("{} out of range 0-150", age))
+        }
+    }
+}
+
+fn main() {
+    let validators: Vec<Box<dyn Validator>> = vec![
+        Box::new(EmailValidator),
+        Box::new(AgeValidator),
+    ];
+
+    let inputs = vec![("budi@mail.com", "25"), ("invalid", "200")];
+
+    for (email, age) in inputs {
+        validators[0].validate_and_report(email);
+        validators[1].validate_and_report(age);
+        println!();
+    }
+}
+```
+
+### Soal 5 — From/Into Conversion (Sedang)
+
+Buat struct `Rgb` dan `Hex`. Implementasikan `From` untuk konversi antara keduanya.
+
+**Jawaban:**
+
+```rust
+struct Rgb {
+    r: u8,
+    g: u8,
+    b: u8,
+}
+
+struct Hex(String);
+
+impl From<Rgb> for Hex {
+    fn from(rgb: Rgb) -> Self {
+        Hex(format!("#{:02x}{:02x}{:02x}", rgb.r, rgb.g, rgb.b))
+    }
+}
+
+impl From<Hex> for Rgb {
+    fn from(hex: Hex) -> Self {
+        let s = hex.0.trim_start_matches('#');
+        let r = u8::from_str_radix(&s[0..2], 16).unwrap_or(0);
+        let g = u8::from_str_radix(&s[2..4], 16).unwrap_or(0);
+        let b = u8::from_str_radix(&s[4..6], 16).unwrap_or(0);
+        Rgb { r, g, b }
+    }
+}
+
+fn main() {
+    let color = Rgb { r: 255, g: 128, b: 0 };
+    let hex: Hex = color.into();
+    println!("Hex: {}", hex.0); // #ff8000
+
+    let rgb: Rgb = Hex("#3498db".to_string()).into();
+    println!("RGB: ({}, {}, {})", rgb.r, rgb.g, rgb.b); // (52, 152, 219)
+}
+```
+
+### Soal 6 — Supertrait (Sedang)
+
+Buat trait `Drawable` yang memerlukan `Display`. Implementasikan untuk beberapa shape.
+
+**Jawaban:**
+
+```rust
+use std::fmt;
+
+trait Drawable: fmt::Display {
+    fn draw(&self) {
+        println!("Drawing: {}", self);
+    }
+}
+
+struct Circle { radius: f64 }
+struct Square { side: f64 }
+
+impl fmt::Display for Circle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Circle(r={})", self.radius)
+    }
+}
+
+impl fmt::Display for Square {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Square(s={})", self.side)
+    }
+}
+
+impl Drawable for Circle {}
+impl Drawable for Square {}
+
+fn draw_all(items: &[&dyn Drawable]) {
+    for item in items {
+        item.draw();
+    }
+}
+
+fn main() {
+    let c = Circle { radius: 5.0 };
+    let s = Square { side: 3.0 };
+    draw_all(&[&c, &s]);
+}
+```
+
+### Soal 7 — Trait Object Collection (Sulit)
+
+Buat plugin system: trait `Plugin` dengan `name` dan `execute`. Buat `PluginManager` yang menyimpan dan menjalankan plugins.
+
+**Jawaban:**
+
+```rust
+trait Plugin {
+    fn name(&self) -> &str;
+    fn execute(&self, input: &str) -> String;
+}
+
+struct UpperPlugin;
+struct ReversePlugin;
+struct CountPlugin;
+
+impl Plugin for UpperPlugin {
+    fn name(&self) -> &str { "uppercase" }
+    fn execute(&self, input: &str) -> String { input.to_uppercase() }
+}
+
+impl Plugin for ReversePlugin {
+    fn name(&self) -> &str { "reverse" }
+    fn execute(&self, input: &str) -> String { input.chars().rev().collect() }
+}
+
+impl Plugin for CountPlugin {
+    fn name(&self) -> &str { "count" }
+    fn execute(&self, input: &str) -> String {
+        format!("{} chars, {} words", input.len(), input.split_whitespace().count())
+    }
+}
+
+struct PluginManager {
+    plugins: Vec<Box<dyn Plugin>>,
+}
+
+impl PluginManager {
+    fn new() -> Self {
+        PluginManager { plugins: Vec::new() }
+    }
+
+    fn register(&mut self, plugin: Box<dyn Plugin>) {
+        println!("Registered plugin: {}", plugin.name());
+        self.plugins.push(plugin);
+    }
+
+    fn run_all(&self, input: &str) {
+        for plugin in &self.plugins {
+            println!("[{}] {}", plugin.name(), plugin.execute(input));
+        }
+    }
+}
+
+fn main() {
+    let mut mgr = PluginManager::new();
+    mgr.register(Box::new(UpperPlugin));
+    mgr.register(Box::new(ReversePlugin));
+    mgr.register(Box::new(CountPlugin));
+
+    println!();
+    mgr.run_all("Hello Rust World");
+}
+```
+
+### Soal 8 — Generic Trait Implementation (Sulit)
+
+Buat trait `Mappable` dengan method `map_items`. Implementasikan untuk Vec dan custom `LinkedList`.
+
+**Jawaban:**
+
+```rust
+trait Mappable<T> {
+    fn map_items<U, F: Fn(&T) -> U>(&self, f: F) -> Vec<U>;
+    fn filter_items<F: Fn(&T) -> bool>(&self, f: F) -> Vec<T> where T: Clone;
+}
+
+impl<T> Mappable<T> for Vec<T> {
+    fn map_items<U, F: Fn(&T) -> U>(&self, f: F) -> Vec<U> {
+        self.iter().map(f).collect()
+    }
+
+    fn filter_items<F: Fn(&T) -> bool>(&self, f: F) -> Vec<T> where T: Clone {
+        self.iter().filter(|x| f(x)).cloned().collect()
+    }
+}
+
+fn main() {
+    let numbers = vec![1, 2, 3, 4, 5];
+
+    let doubled = numbers.map_items(|&n| n * 2);
+    println!("Doubled: {:?}", doubled);
+
+    let evens = numbers.filter_items(|&n| n % 2 == 0);
+    println!("Evens: {:?}", evens);
+
+    let names = vec!["alice", "bob", "charlie"];
+    let upper = names.map_items(|s| s.to_uppercase());
+    println!("Upper: {:?}", upper);
+}
+```

@@ -1,61 +1,61 @@
 # 03. Two Sum
 
-## Problem
+## Soal
 
-Given an array of integers `nums` and an integer `target`, return *indices of the two numbers such that they add up to `target`*.
+Diberikan sebuah array integer `nums` dan sebuah integer `target`, kembalikan *indeks dari dua angka yang jika dijumlahkan menghasilkan `target`*.
 
-You may assume that each input would have **exactly one solution**, and you may not use the *same* element twice.
+Kamu boleh berasumsi bahwa setiap input memiliki **tepat satu solusi**, dan kamu tidak boleh menggunakan elemen yang *sama* dua kali.
 
-You can return the answer in any order.
+Kamu bisa mengembalikan jawaban dalam urutan apa pun.
 
 ---
 
-## Examples
+## Contoh
 
-### Example 1
+### Contoh 1
 
 **Input:** `nums = [2, 7, 11, 15]`, `target = 9`  
 **Output:** `[0, 1]`  
-**Explanation:** Because `nums[0] + nums[1] == 9`, we return `[0, 1]`.
+**Penjelasan:** Karena `nums[0] + nums[1] == 9`, kita kembalikan `[0, 1]`.
 
-### Example 2
+### Contoh 2
 
 **Input:** `nums = [3, 2, 4]`, `target = 6`  
 **Output:** `[1, 2]`
 
-### Example 3
+### Contoh 3
 
 **Input:** `nums = [3, 3]`, `target = 6`  
 **Output:** `[0, 1]`
 
 ---
 
-## Constraints
+## Batasan
 
 - `2 <= nums.length <= 10^4`
 - `-10^9 <= nums[i] <= 10^9`
 - `-10^9 <= target <= 10^9`
-- **Only one valid answer exists.**
+- **Hanya ada satu jawaban yang valid.**
 
 ---
 
-## Follow-up
+## Tindak Lanjut
 
-Can you come up with an algorithm that is less than O(n²) time complexity?
+Bisakah kamu membuat algoritma dengan kompleksitas waktu kurang dari O(n²)?
 
 ---
 
-## Solution
+## Solusi
 
-### Approach: Hash Map
+### Pendekatan: Hash Map
 
-1. Iterate through the array
-2. For each element `x`, calculate the complement `y = target - x`
-3. Check if the complement exists in the hash map
-4. If found, return both indices; otherwise, store the current element and its index
+1. Iterasi melalui array
+2. Untuk setiap elemen `x`, hitung komplemen `y = target - x`
+3. Periksa apakah komplemen tersebut ada di hash map
+4. Jika ditemukan, kembalikan kedua indeks; jika tidak, simpan elemen saat ini beserta indeksnya
 
-**Time Complexity:** O(n)  
-**Space Complexity:** O(n)
+**Kompleksitas Waktu:** O(n)  
+**Kompleksitas Ruang:** O(n)
 
 ```javascript
 class Solution {
@@ -81,7 +81,7 @@ class Solution {
 }
 ```
 
-### Brute Force (Not Recommended)
+### Brute Force (Tidak Direkomendasikan)
 
 ```javascript
 class Solution {
@@ -97,5 +97,5 @@ class Solution {
 }
 ```
 
-**Time Complexity:** O(n²)  
-**Space Complexity:** O(1)
+**Kompleksitas Waktu:** O(n²)  
+**Kompleksitas Ruang:** O(1)

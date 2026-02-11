@@ -1,53 +1,53 @@
 # 02. Valid Anagram
 
-## Problem
+## Soal
 
-Given two strings `s` and `t`, return `true` if `t` is an anagram of `s`, and `false` otherwise.
+Diberikan dua string `s` dan `t`, kembalikan `true` jika `t` adalah anagram dari `s`, dan `false` jika bukan.
 
-An **Anagram** is a word or phrase formed by rearranging the letters of a different word or phrase, using all the original letters exactly once.
+**Anagram** adalah sebuah kata atau frasa yang dibentuk dengan menyusun ulang huruf-huruf dari kata atau frasa lain, menggunakan semua huruf asli tepat satu kali.
 
 ---
 
-## Examples
+## Contoh
 
-### Example 1
+### Contoh 1
 
 **Input:** `s = "anagram"`, `t = "nagaram"`  
 **Output:** `true`
 
-### Example 2
+### Contoh 2
 
 **Input:** `s = "rat"`, `t = "car"`  
 **Output:** `false`
 
 ---
 
-## Constraints
+## Batasan
 
 - `1 <= s.length, t.length <= 5 * 10^4`
-- `s` and `t` consist of lowercase English letters.
+- `s` dan `t` terdiri dari huruf kecil bahasa Inggris.
 
 ---
 
-## Follow-up
+## Tindak Lanjut
 
-What if the inputs contain Unicode characters? How would you adapt your solution to such a case?
+Bagaimana jika input mengandung karakter Unicode? Bagaimana kamu menyesuaikan solusimu?
 
-> **Answer:** Use a `Map` instead of a fixed-size array to count character frequencies, as Unicode has a much larger character set.
+> **Jawaban:** Gunakan `Map` sebagai pengganti array berukuran tetap untuk menghitung frekuensi karakter, karena Unicode memiliki himpunan karakter yang jauh lebih besar.
 
 ---
 
-## Solution
+## Solusi
 
-### Approach: Character Counting
+### Pendekatan: Penghitungan Karakter
 
-1. If lengths differ, return `false` immediately
-2. Use an array of 26 elements to count character frequencies
-3. Increment count for characters in `s`, decrement for characters in `t`
-4. If all counts are zero, the strings are anagrams
+1. Jika panjang string berbeda, langsung kembalikan `false`
+2. Gunakan array berisi 26 elemen untuk menghitung frekuensi karakter
+3. Tambahkan hitungan untuk karakter di `s`, kurangi untuk karakter di `t`
+4. Jika semua hitungan nol, maka kedua string adalah anagram
 
-**Time Complexity:** O(n)  
-**Space Complexity:** O(1) - fixed array of 26 elements
+**Kompleksitas Waktu:** O(n)  
+**Kompleksitas Ruang:** O(1) - array tetap berisi 26 elemen
 
 ```javascript
 class Solution {
@@ -73,7 +73,7 @@ class Solution {
 }
 ```
 
-### Alternative: Sorting
+### Alternatif: Sorting
 
 ```javascript
 class Solution {
@@ -84,5 +84,5 @@ class Solution {
 }
 ```
 
-**Time Complexity:** O(n log n)  
-**Space Complexity:** O(n)
+**Kompleksitas Waktu:** O(n log n)  
+**Kompleksitas Ruang:** O(n)
