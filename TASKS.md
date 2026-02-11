@@ -66,18 +66,73 @@
 - [x] 7.3 Replace `font-serif` → `font-heading` in all TSX components (header, sidebar, home, doc-page, mobile-nav)
 - [x] 7.4 Update PLAN.md — fonts section and fontFamily tokens
 
+## Phase 8: Static Deployment ✅
+
+- [x] 8.1 Rewrite src/lib/docs.ts — replace fs/promises with import.meta.glob(?raw)
+- [x] 8.2 Rewrite src/hooks/use-docs.ts — replace fetch() with direct module imports
+- [x] 8.3 Update vite.config.ts — remove /api proxy
+- [x] 8.4 Update package.json — remove dev:server/start, simplify dev to Vite-only
+- [x] 8.5 Create src/vite-env.d.ts — TypeScript .md?raw module declarations
+- [x] 8.6 Create vercel.json — SPA rewrite rules
+- [x] 8.7 Delete src/server/index.ts — remove Bun API server
+- [x] 8.8 Verify build passes (600 modules → 44 chunks, 3.47s)
+
+## Phase 9: MDX Migration
+
+- [ ] 9.1 Install MDX dependencies (`bun add @mdx-js/rollup @mdx-js/react remark-frontmatter rehype-slug`)
+- [ ] 9.2 Configure @mdx-js/rollup as Vite plugin (vite.config.ts — mdx() before react())
+- [ ] 9.3 Update import.meta.glob in src/lib/docs.ts — change from `.md?raw` string imports to `.mdx` component imports
+- [ ] 9.4 Update src/types.ts — replace `content: string` with `Content: ComponentType`
+- [ ] 9.5 Update src/hooks/use-docs.ts — return MDX component instead of raw string
+- [ ] 9.6 Create src/components/mdx-renderer.tsx — MDXProvider wrapper with custom component map
+- [ ] 9.7 Update src/pages/doc-page.tsx — use `<MdxRenderer Content={doc.Content} />`
+- [ ] 9.8 Update src/vite-env.d.ts — add `.mdx` module declaration
+- [ ] 9.9 Rename all 39 docs from .md to .mdx (`docs/**/*.md` → `docs/**/*.mdx`)
+- [ ] 9.10 Verify MDX pipeline builds and renders existing content correctly
+
+## Phase 10: Code Copy Button
+
+- [ ] 10.1 Create src/components/code-block.tsx — `<pre>` wrapper with copy button (monochrome, no border-radius)
+- [ ] 10.2 Register `pre: CodeBlock` in MDX component map
+- [ ] 10.3 Verify copy button appears on hover, copies text to clipboard, shows "Copied!" feedback
+
+## Phase 11: Interactive Checkboxes
+
+- [ ] 11.1 Create src/hooks/use-checkbox-storage.ts — localStorage read/write hook with key scoping
+- [ ] 11.2 Create src/components/checkbox-tracker.tsx — interactive checkbox with localStorage persistence
+- [ ] 11.3 Create src/components/progress-context.tsx — provides docKey + checkbox index counter
+- [ ] 11.4 Override `li` component in MDX map — detect GFM task list items, render CheckboxTracker
+- [ ] 11.5 Wrap MdxRenderer with ProgressProvider in doc-page.tsx
+- [ ] 11.6 Verify checkboxes are clickable, state persists across page refreshes and navigation
+
+## Phase 12: Mermaid Diagrams
+
+- [ ] 12.1 Install mermaid (`bun add mermaid`)
+- [ ] 12.2 Create src/components/mermaid-diagram.tsx — lazy-loaded mermaid renderer with monochrome theme
+- [ ] 12.3 Create code router in MDX component map — detect `language-mermaid`, route to MermaidDiagram vs normal code
+- [ ] 12.4 Verify mermaid diagrams render with monochrome colors (black/white/gray only)
+
+## Phase 13: MDX Cleanup & Verification
+
+- [ ] 13.1 Remove deprecated dependencies (`bun remove react-markdown rehype-highlight rehype-raw`)
+- [ ] 13.2 Remove old hljs monochrome theme CSS from index.css (replaced by custom code component)
+- [ ] 13.3 Delete src/components/markdown-renderer.tsx (replaced by mdx-renderer.tsx)
+- [ ] 13.4 Update README.md — reflect MDX stack, new features (copy, checkboxes, mermaid)
+- [ ] 13.5 Update VERCEL.md — reflect static MDX architecture
+- [ ] 13.6 Verify production build passes with all features
+- [ ] 13.7 Visual testing — verify all 4 features work in browser
+
 ---
 
 ## How to Run
 
 ```bash
-# Start both server + Vite dev in parallel
+# Start Vite dev server
 bun run dev
-
-# Or run separately:
-bun run dev:server   # API server on :3000
-bun run dev:client   # Vite on :5173
 
 # Build for production
 bun run build
+
+# Preview production build
+bun run preview
 ```
