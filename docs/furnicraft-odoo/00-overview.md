@@ -1,0 +1,293 @@
+# PT. Furnicraft Indonesia - Implementasi Odoo 16
+
+## Profil Perusahaan
+
+**PT. Furnicraft Indonesia** adalah perusahaan manufaktur furnitur berbasis di Jawa Tengah, Indonesia. Perusahaan memproduksi berbagai jenis furnitur kayu berkualitas tinggi untuk pasar domestik dan ekspor.
+
+### Informasi Perusahaan
+
+| Aspek | Detail |
+|-------|--------|
+| **Nama** | PT. Furnicraft Indonesia |
+| **Industri** | Manufaktur Furnitur |
+| **Lokasi** | Jepara, Jawa Tengah |
+| **Tahun Berdiri** | 2018 |
+| **Jumlah Karyawan** | 150 orang |
+| **Omzet Tahunan** | Rp 25-35 Miliar |
+
+### Produk Utama
+
+1. **Living Room** - Sofa, meja tamu, rak TV, coffee table
+2. **Bedroom** - Tempat tidur, lemari, nakas, meja rias
+3. **Dining** - Meja makan, kursi makan, buffet
+4. **Office** - Meja kerja, kursi kantor, rak dokumen
+5. **Outdoor** - Garden set, bench, gazebo
+
+### Struktur Organisasi
+
+```mermaid
+graph TB
+    CEO[Direktur Utama]
+    
+    CEO --> CFO[Direktur Keuangan]
+    CEO --> COO[Direktur Operasional]
+    CEO --> CMO[Direktur Pemasaran]
+    
+    CFO --> ACC[Accounting]
+    CFO --> FIN[Finance]
+    
+    COO --> PROD[Produksi]
+    COO --> PURCH[Purchasing]
+    COO --> WH[Warehouse]
+    COO --> QC[Quality Control]
+    COO --> HR[HRD]
+    
+    CMO --> SALES[Sales]
+    CMO --> MKT[Marketing]
+    CMO --> CS[Customer Service]
+    
+    PROD --> WS1[Workshop Kayu]
+    PROD --> WS2[Workshop Finishing]
+    PROD --> WS3[Workshop Assembly]
+```
+
+---
+
+## Tujuan Implementasi
+
+### Business Goals
+
+1. **Integrasi Proses** - Menghubungkan seluruh departemen dalam satu sistem
+2. **Real-time Visibility** - Monitoring stok, produksi, dan keuangan secara real-time
+3. **Efisiensi Operasional** - Mengurangi waktu proses dan human error
+4. **Traceability** - Pelacakan material dari pembelian hingga pengiriman
+5. **Kepatuhan** - Memenuhi standar akuntansi dan perpajakan Indonesia
+
+### Key Performance Indicators (KPI)
+
+| Area | KPI | Target |
+|------|-----|--------|
+| Sales | Order-to-Delivery Time | < 14 hari |
+| Inventory | Stock Accuracy | > 98% |
+| Production | On-Time Delivery | > 95% |
+| Quality | Defect Rate | < 2% |
+| Finance | Invoice Cycle Time | < 3 hari |
+
+---
+
+## Roadmap Implementasi
+
+```mermaid
+gantt
+    title Roadmap Implementasi Odoo 16 - PT. Furnicraft Indonesia
+    dateFormat  YYYY-MM-DD
+    
+    section Phase 1: Foundation
+    Instalasi & Setup Server       :p1a, 2024-01-01, 7d
+    Konfigurasi Perusahaan        :p1b, after p1a, 5d
+    Setup Users & Access Rights   :p1c, after p1b, 3d
+    
+    section Phase 2: Master Data
+    Product Categories & Products  :p2a, after p1c, 7d
+    Contacts (Vendor & Customer)   :p2b, after p1c, 5d
+    Chart of Accounts Indonesia    :p2c, after p1c, 5d
+    
+    section Phase 3: Core Operations
+    Inventory & Warehouse          :p3a, after p2a, 10d
+    Purchase Management            :p3b, after p3a, 7d
+    Manufacturing (MRP)            :p3c, after p3b, 14d
+    Sales Management               :p3d, after p3a, 7d
+    
+    section Phase 4: Finance
+    Accounting Setup               :p4a, after p3d, 10d
+    Invoicing & Payments           :p4b, after p4a, 7d
+    Bank Reconciliation            :p4c, after p4b, 5d
+    
+    section Phase 5: Extended
+    CRM                            :p5a, after p4c, 7d
+    HR & Payroll                   :p5b, after p4c, 10d
+    Project Management             :p5c, after p4c, 5d
+    Quality Control                :p5d, after p3c, 7d
+    
+    section Phase 6: Digital
+    Website & eCommerce            :p6a, after p5a, 14d
+    Reporting & Dashboards         :p6b, after p6a, 7d
+    Go-Live & Training             :p6c, after p6b, 14d
+```
+
+---
+
+## Modul yang Diimplementasikan
+
+### Core Modules
+
+| No | Modul | Fungsi | Prioritas |
+|----|-------|--------|-----------|
+| 1 | **Settings** | Konfigurasi sistem dan perusahaan | Critical |
+| 2 | **Contacts** | Master data vendor dan customer | Critical |
+| 3 | **Inventory** | Manajemen gudang dan stok | Critical |
+| 4 | **Purchase** | Pengadaan dan pembelian | Critical |
+| 5 | **Manufacturing** | Produksi dan MRP | Critical |
+| 6 | **Sales** | Penjualan dan quotation | Critical |
+| 7 | **Accounting** | Keuangan dan perpajakan | Critical |
+
+### Extended Modules
+
+| No | Modul | Fungsi | Prioritas |
+|----|-------|--------|-----------|
+| 8 | **CRM** | Pipeline penjualan dan leads | High |
+| 9 | **HR** | Manajemen karyawan | High |
+| 10 | **Project** | Manajemen proyek custom order | Medium |
+| 11 | **Quality** | Quality control produksi | Medium |
+| 12 | **Website** | Company profile online | Low |
+| 13 | **eCommerce** | Penjualan online | Low |
+
+---
+
+## Alur Bisnis Utama
+
+### 1. Procure-to-Pay (P2P)
+
+```mermaid
+flowchart LR
+    subgraph Procurement
+        A[Purchase Request] --> B[RFQ ke Vendor]
+        B --> C[Purchase Order]
+    end
+    
+    subgraph Receiving
+        C --> D[Goods Receipt]
+        D --> E[Quality Check]
+        E --> F[Stock Update]
+    end
+    
+    subgraph Payment
+        C --> G[Vendor Bill]
+        G --> H[Payment Approval]
+        H --> I[Payment Execution]
+        I --> J[Bank Reconciliation]
+    end
+```
+
+### 2. Order-to-Cash (O2C)
+
+```mermaid
+flowchart LR
+    subgraph Sales
+        A[Lead/Opportunity] --> B[Quotation]
+        B --> C[Sales Order]
+    end
+    
+    subgraph Fulfillment
+        C --> D[Manufacturing Order]
+        D --> E[Production]
+        E --> F[Quality Check]
+        F --> G[Delivery Order]
+        G --> H[Shipment]
+    end
+    
+    subgraph Revenue
+        C --> I[Customer Invoice]
+        I --> J[Payment Collection]
+        J --> K[Bank Reconciliation]
+    end
+```
+
+### 3. Make-to-Order (MTO) Flow
+
+```mermaid
+flowchart TB
+    subgraph Order
+        A[Sales Order] --> B{Stock Available?}
+        B -->|Yes| C[Reserve Stock]
+        B -->|No| D[Create MO]
+    end
+    
+    subgraph Planning
+        D --> E[Check BoM]
+        E --> F{Materials Ready?}
+        F -->|No| G[Create PO]
+        G --> H[Receive Materials]
+        H --> F
+        F -->|Yes| I[Schedule Production]
+    end
+    
+    subgraph Production
+        I --> J[Work Order: Cutting]
+        J --> K[Work Order: Assembly]
+        K --> L[Work Order: Finishing]
+        L --> M[Quality Inspection]
+        M --> N[Finished Goods]
+    end
+    
+    subgraph Delivery
+        C --> O[Prepare Delivery]
+        N --> O
+        O --> P[Ship to Customer]
+    end
+```
+
+---
+
+## Daftar Dokumen Implementasi
+
+| No | Dokumen | Deskripsi |
+|----|---------|-----------|
+| 00 | `00-overview.md` | Dokumen ini - gambaran umum |
+| 01 | `01-persiapan-instalasi.md` | Instalasi Odoo 16 |
+| 02 | `02-pengaturan-perusahaan.md` | Setup company & users |
+| 03 | `03-master-data.md` | Products & contacts |
+| 04 | `04-inventory.md` | Warehouse management |
+| 05 | `05-purchase.md` | Procurement |
+| 06 | `06-manufacturing.md` | Production & MRP |
+| 07 | `07-sales.md` | Sales management |
+| 08 | `08-accounting.md` | Finance & tax |
+| 09 | `09-crm.md` | Customer relationship |
+| 10 | `10-hr.md` | Human resources |
+| 11 | `11-project.md` | Project management |
+| 12 | `12-quality.md` | Quality control |
+| 13 | `13-website-ecommerce.md` | Digital presence |
+| 14 | `14-reporting.md` | Analytics & dashboards |
+
+---
+
+## Tim Implementasi
+
+### Internal Team (PT. Furnicraft)
+
+| Role | Nama | Departemen |
+|------|------|------------|
+| Project Sponsor | Budi Santoso | Direktur Utama |
+| Project Manager | Dewi Lestari | IT Manager |
+| Finance Lead | Ahmad Fauzi | Accounting Manager |
+| Operations Lead | Siti Rahayu | Production Manager |
+| Sales Lead | Rudi Hartono | Sales Manager |
+
+### Key Users per Module
+
+| Modul | Key User | Backup |
+|-------|----------|--------|
+| Inventory | Andi Wijaya | Bambang K. |
+| Purchase | Rina Susanti | Dian P. |
+| Manufacturing | Hendra Kusuma | Agus S. |
+| Sales | Maya Putri | Tono W. |
+| Accounting | Sri Wahyuni | Eko P. |
+| HR | Linda Permata | Yuni A. |
+
+---
+
+## Catatan Implementasi
+
+> **Versi Odoo**: 16.0 Community Edition (CE)
+> 
+> **Bahasa**: Bahasa Indonesia (id_ID)
+> 
+> **Timezone**: Asia/Jakarta (WIB)
+> 
+> **Currency**: Indonesian Rupiah (IDR)
+> 
+> **Fiscal Year**: Januari - Desember
+
+---
+
+*Dokumen ini adalah bagian dari Panduan Implementasi Odoo 16 untuk PT. Furnicraft Indonesia*

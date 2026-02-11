@@ -1,0 +1,270 @@
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap");
+@import "tailwindcss";
+
+@plugin "@tailwindcss/typography";
+
+/* ===== Minimalist Monochrome Design System ===== */
+
+@theme {
+  --font-heading: "Google Sans", "Segoe UI", Roboto, sans-serif;
+  --font-body: "Google Sans", "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  --color-background: #ffffff;
+  --color-foreground: #000000;
+  --color-muted: #f5f5f5;
+  --color-muted-foreground: #525252;
+  --color-accent: #000000;
+  --color-accent-foreground: #ffffff;
+  --color-border: #000000;
+  --color-border-light: #e5e5e5;
+
+  --color-sidebar: #f5f5f5;
+  --color-sidebar-foreground: #000000;
+  --color-sidebar-border: #e5e5e5;
+  --color-sidebar-active: #000000;
+  --color-sidebar-active-foreground: #ffffff;
+
+  --radius-none: 0px;
+}
+
+/* ===== Base Styles ===== */
+
+* {
+  border-color: var(--color-border-light);
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-body);
+  color: var(--color-foreground);
+  background-color: var(--color-background);
+  line-height: 1.7;
+  margin: 0;
+}
+
+/* ===== Typography ===== */
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+  letter-spacing: -0.025em;
+  line-height: 1.1;
+  font-weight: 700;
+}
+
+code, pre, kbd, samp {
+  font-family: var(--font-mono);
+}
+
+/* ===== Prose Typography (markdown content) ===== */
+
+.prose {
+  --tw-prose-body: var(--color-foreground);
+  --tw-prose-headings: var(--color-foreground);
+  --tw-prose-links: var(--color-foreground);
+  --tw-prose-bold: var(--color-foreground);
+  --tw-prose-code: var(--color-foreground);
+  --tw-prose-quotes: var(--color-muted-foreground);
+  --tw-prose-quote-borders: var(--color-foreground);
+  --tw-prose-counters: var(--color-muted-foreground);
+  --tw-prose-bullets: var(--color-foreground);
+  --tw-prose-hr: var(--color-border-light);
+  --tw-prose-th-borders: var(--color-foreground);
+  --tw-prose-td-borders: var(--color-border-light);
+  --tw-prose-pre-bg: var(--color-muted);
+  --tw-prose-pre-code: var(--color-foreground);
+  font-family: var(--font-body);
+  max-width: 72ch;
+}
+
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4 {
+  font-family: var(--font-heading);
+  letter-spacing: -0.025em;
+}
+
+.prose h1 { font-size: 2.25rem; margin-top: 0; }
+.prose h2 { font-size: 1.5rem; margin-top: 2.5rem; padding-bottom: 0.5rem; border-bottom: 2px solid var(--color-foreground); }
+.prose h3 { font-size: 1.25rem; margin-top: 2rem; }
+
+.prose a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  transition: opacity 100ms;
+}
+.prose a:hover {
+  opacity: 0.7;
+}
+
+.prose code {
+  font-size: 0.875em;
+  padding: 0.15em 0.35em;
+  background: var(--color-muted);
+  border: 1px solid var(--color-border-light);
+  font-weight: 500;
+}
+
+.prose pre {
+  border: 2px solid var(--color-foreground);
+  border-radius: 0;
+  overflow-x: auto;
+}
+
+.prose pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: 0.8125rem;
+  line-height: 1.7;
+}
+
+.prose blockquote {
+  border-left: 4px solid var(--color-foreground);
+  font-style: italic;
+  color: var(--color-muted-foreground);
+}
+
+.prose table {
+  border: 2px solid var(--color-foreground);
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.prose th {
+  background: var(--color-foreground);
+  color: var(--color-accent-foreground);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  padding: 0.75rem 1rem;
+}
+
+.prose td {
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--color-border-light);
+}
+
+.prose img {
+  border: 2px solid var(--color-foreground);
+}
+
+.prose hr {
+  border: none;
+  height: 2px;
+  background: var(--color-foreground);
+  margin: 3rem 0;
+}
+
+/* ===== Scrollbar ===== */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-muted);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-muted-foreground);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-foreground);
+}
+
+/* ===== Focus States ===== */
+
+:focus-visible {
+  outline: 3px solid var(--color-foreground);
+  outline-offset: 3px;
+}
+
+/* ===== Highlight.js Monochrome Theme ===== */
+
+.hljs {
+  background: var(--color-muted);
+  color: var(--color-foreground);
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: #737373;
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-type,
+.hljs-built_in {
+  color: var(--color-foreground);
+  font-weight: 700;
+}
+
+.hljs-string,
+.hljs-attr,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-addition,
+.hljs-template-variable,
+.hljs-template-tag {
+  color: #404040;
+}
+
+.hljs-number,
+.hljs-literal,
+.hljs-variable,
+.hljs-params {
+  color: #525252;
+}
+
+.hljs-title,
+.hljs-section,
+.hljs-name {
+  color: var(--color-foreground);
+  font-weight: 700;
+}
+
+.hljs-selector-id,
+.hljs-selector-class {
+  color: var(--color-foreground);
+  font-weight: 600;
+}
+
+.hljs-deletion {
+  color: #737373;
+  text-decoration: line-through;
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: 700;
+}
+
+.hljs-link {
+  text-decoration: underline;
+}
+
+.hljs-meta,
+.hljs-meta .hljs-string {
+  color: #737373;
+}
+
+/* ===== Selection ===== */
+
+::selection {
+  background: var(--color-foreground);
+  color: var(--color-accent-foreground);
+}
