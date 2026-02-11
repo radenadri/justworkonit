@@ -28,7 +28,7 @@ export function DocsLayout() {
     );
   }
 
-  return (
+   return (
     <div className="min-h-screen flex flex-col">
       <Header />
       <div className="flex flex-1">
@@ -43,6 +43,14 @@ export function DocsLayout() {
           <Outlet context={{ collections }} />
         </main>
       </div>
+
+      {/* Footer */}
+      <footer className="border-t border-border-light px-6 py-6">
+        <div className="flex flex-col md:flex-row items-center justify-between gap-2 text-xs font-mono text-muted-foreground">
+          <span>justworkonit — documentation &amp; learning resources</span>
+          <span>built with react + mdx + vite</span>
+        </div>
+      </footer>
 
       {/* Mobile nav */}
       <MobileNav collections={collections} />

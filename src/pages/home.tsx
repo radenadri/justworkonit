@@ -8,14 +8,15 @@ export function HomePage() {
     <div className="px-6 md:px-12 py-12 md:py-20 max-w-4xl">
       {/* Hero */}
       <div className="mb-16">
-        <div className="flex items-center gap-4 mb-6">
-          <div className="h-1 w-12 bg-foreground" />
-        </div>
-        <h1 className="font-heading text-5xl md:text-7xl tracking-tighter leading-none mb-6">
-          Documentation
+        <h1 className="font-heading text-5xl md:text-7xl tracking-tighter leading-none mb-4">
+          justworkonit
         </h1>
+        <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-6">
+          Documentation &amp; Learning Resources
+        </p>
         <p className="text-lg text-muted-foreground max-w-xl font-body">
-          Learning guides and technical references. Select a collection to begin reading.
+          Technical references, implementation guides, and study notes. Select a collection to
+          begin.
         </p>
       </div>
 
