@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export function Header() {
   return (
@@ -14,6 +15,7 @@ export function Header() {
         </Link>
 
         <nav className="hidden md:flex items-center gap-6">
+          <ThemeToggle />
           <Link
             to="/"
             className="text-xs font-mono uppercase tracking-widest text-muted-foreground transition-colors duration-100 hover:text-foreground"

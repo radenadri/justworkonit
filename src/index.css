@@ -48,6 +48,23 @@ body {
   margin: 0;
 }
 
+:root[data-theme="dark"] {
+  --color-background: #000000;
+  --color-foreground: #ffffff;
+  --color-muted: #0f0f0f;
+  --color-muted-foreground: #a3a3a3;
+  --color-accent: #ffffff;
+  --color-accent-foreground: #000000;
+  --color-border: #ffffff;
+  --color-border-light: #2e2e2e;
+
+  --color-sidebar: #0f0f0f;
+  --color-sidebar-foreground: #ffffff;
+  --color-sidebar-border: #2e2e2e;
+  --color-sidebar-active: #ffffff;
+  --color-sidebar-active-foreground: #000000;
+}
+
 /* ===== Typography ===== */
 
 h1, h2, h3, h4, h5, h6 {

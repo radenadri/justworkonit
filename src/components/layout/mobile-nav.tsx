@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import type { Collection } from "@/types";
 import { Sidebar } from "./sidebar";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 interface MobileNavProps {
   collections: Collection[];
@@ -44,17 +45,20 @@ export function MobileNav({ collections }: MobileNavProps) {
 
           {/* Drawer */}
           <div className="fixed inset-y-0 left-0 z-50 w-72 bg-background border-r-2 border-foreground overflow-y-auto">
-            <div className="flex items-center justify-between h-14 px-6 border-b-2 border-foreground">
-              <span className="font-heading text-lg font-bold tracking-tight">
-                Navigation
-              </span>
-              <button
-                onClick={() => setOpen(false)}
-                className="h-8 w-8 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors duration-100"
-                aria-label="Close navigation"
-              >
-                ✕
-              </button>
+            <div className="flex flex-col gap-3 px-6 py-4 border-b-2 border-foreground">
+              <div className="flex items-center justify-between">
+                <span className="font-heading text-lg font-bold tracking-tight">
+                  Navigation
+                </span>
+                <button
+                  onClick={() => setOpen(false)}
+                  className="h-8 w-8 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors duration-100"
+                  aria-label="Close navigation"
+                >
+                  ✕
+                </button>
+              </div>
+              <ThemeToggle className="self-start" />
             </div>
             <Sidebar
               collections={collections}
