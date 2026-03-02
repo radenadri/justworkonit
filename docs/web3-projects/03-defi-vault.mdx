@@ -258,6 +258,68 @@ contract SimpleVaultTest is Test {
 
 ## 🌐 Frontend Integration
 
+### Install Dependencies
+
+```bash
+npm install @rainbow-me/rainbowkit wagmi viem @tanstack/react-query
+```
+
+### Configuration
+
+#### 1. Setup wagmi + RainbowKit Config
+
+```typescript
+// config/wagmi.ts
+import { getDefaultConfig } from '@rainbow-me/rainbowkit'
+import { mainnet, sepolia, localhost } from 'wagmi/chains'
+
+export const config = getDefaultConfig({
+  appName: 'DeFi Vault',
+  projectId: 'YOUR_WALLET_CONNECT_PROJECT_ID',
+  chains: [localhost, mainnet, sepolia],
+  ssr: true,
+})
+```
+
+#### 2. Setup Providers
+
+```typescript
+// app/providers.tsx
+'use client'
+
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { WagmiProvider } from 'wagmi'
+import { RainbowKitProvider, darkTheme } from '@rainbow-me/rainbowkit'
+import { config } from '@/config/wagmi'
+import '@rainbow-me/rainbowkit/styles.css'
+
+const queryClient = new QueryClient()
+
+export function Providers({ children }: { children: React.ReactNode }) {
+  return (
+    <WagmiProvider config={config}>
+      <QueryClientProvider client={queryClient}>
+        <RainbowKitProvider 
+          theme={darkTheme({
+            accentColor: '#7b3fe4',
+            accentColorForeground: 'white',
+          })}
+        >
+          {children}
+        </RainbowKitProvider>
+      </QueryClientProvider>
+    </WagmiProvider>
+  )
+}
+```
+
+#### 3. Environment Variables
+
+```bash
+# .env.local
+NEXT_PUBLIC_WALLET_CONNECT_PROJECT_ID=your-project-id
+```
+
 ### Contract ABIs
 
 ```typescript
@@ -514,6 +576,121 @@ export function VaultDashboard() {
 
 ---
 
+## 🎯 Main Page dengan Wallet Connection
+
+### Vault Page Component
+
+```typescript
+// app/page.tsx
+'use client'
+
+import { useAccount } from 'wagmi'
+import { ConnectButton } from '@rainbow-me/rainbowkit'
+import { VaultDashboard } from '@/components/VaultDashboard'
+
+export default function VaultPage() {
+  const { isConnected } = useAccount()
+
+  return (
+    <main className="min-h-screen bg-gradient-to-b from-gray-900 to-gray-800">
+      <header className="bg-gray-900/80 backdrop-blur-sm border-b border-gray-700">
+        <div className="container mx-auto px-4 py-4 flex justify-between items-center">
+          <h1 className="text-2xl font-bold text-white">DeFi Vault</h1>
+          <ConnectButton />
+        </div>
+      </header>
+
+      <div className="container mx-auto px-4 py-8">
+        {isConnected ? (
+          <VaultDashboard />
+        ) : (
+          <div className="text-center py-20">
+            <h2 className="text-3xl font-bold text-white mb-4">
+              Welcome to DeFi Vault
+            </h2>
+            <p className="text-gray-400 mb-8 text-lg">
+              Connect your wallet to start earning yield on your assets
+            </p>
+            <ConnectButton />
+          </div>
+        )}
+      </div>
+    </main>
+  )
+}
+```
+
+### Vault Dashboard Component
+
+```typescript
+// components/VaultDashboard.tsx
+'use client'
+
+import { useAccount } from 'wagmi'
+import { useVaultStats } from '@/hooks/useVaultStats'
+import { useTokenBalance } from '@/hooks/useTokenBalance'
+import { DepositForm } from './DepositForm'
+import { WithdrawForm } from './WithdrawForm'
+
+function formatUnits(value: bigint, decimals: number = 6): string {
+  return (Number(value) / Math.pow(10, decimals)).toFixed(2)
+}
+
+export function VaultDashboard() {
+  const { address } = useAccount()
+  const { data: vaultBalance } = useVaultStats(address)
+  const { data: tokenBalance } = useTokenBalance(address)
+
+  return (
+    <div className="max-w-4xl mx-auto">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
+          <h3 className="text-gray-400 text-sm uppercase tracking-wider mb-2">
+            Your Vault Balance
+          </h3>
+          <p className="text-3xl font-bold text-white">
+            {vaultBalance ? formatUnits(vaultBalance) : '0'}
+          </p>
+          <p className="text-gray-500 text-sm">USDC</p>
+        </div>
+
+        <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
+          <h3 className="text-gray-400 text-sm uppercase tracking-wider mb-2">
+            Wallet Balance
+          </h3>
+          <p className="text-3xl font-bold text-white">
+            {tokenBalance ? formatUnits(tokenBalance) : '0'}
+          </p>
+          <p className="text-gray-500 text-sm">USDC</p>
+        </div>
+
+        <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
+          <h3 className="text-gray-400 text-sm uppercase tracking-wider mb-2">
+            APY
+          </h3>
+          <p className="text-3xl font-bold text-green-400">5.2%</p>
+          <p className="text-gray-500 text-sm">Annual Yield</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
+          <h2 className="text-xl font-semibold text-white mb-4">Deposit</h2>
+          <DepositForm />
+        </div>
+
+        <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
+          <h2 className="text-xl font-semibold text-white mb-4">Withdraw</h2>
+          <WithdrawForm />
+        </div>
+      </div>
+    </div>
+  )
+}
+```
+
+---
+
 ## ✅ Checklist
 
 - [ ] Setup Foundry project
@@ -523,6 +700,9 @@ export function VaultDashboard() {
 - [ ] Write unit tests
 - [ ] Deploy contracts ke local/Anvil
 - [ ] Setup Next.js frontend
+- [ ] Install RainbowKit
+- [ ] Konfigurasi RainbowKitProvider
+- [ ] Tambahkan ConnectButton ke page
 - [ ] Konfigurasi wagmi/viem
 - [ ] Implementasi UI Approve Token (Transaction 1)
 - [ ] Implementasi UI Deposit ke Vault (Transaction 2)

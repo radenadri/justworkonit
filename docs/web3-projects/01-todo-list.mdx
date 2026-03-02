@@ -269,18 +269,41 @@ forge test
 
 ## 🌐 Frontend Integration
 
+### Install Dependencies
+
+```bash
+# Install RainbowKit dan dependencies
+npm install @rainbow-me/rainbowkit wagmi viem @tanstack/react-query
+```
+
 ### Configuration
 
-#### 1. Setup wagmi Config
+#### 1. Setup wagmi + RainbowKit Config
 
 ```typescript
 // config/wagmi.ts
 import { http, createConfig } from 'wagmi'
 import { mainnet, sepolia } from 'wagmi/chains'
+import { getDefaultConfig } from '@rainbow-me/rainbowkit'
+
+export const config = getDefaultConfig({
+  appName: 'Web3 Todo List',
+  projectId: 'YOUR_WALLET_CONNECT_PROJECT_ID', // Dapatkan dari https://cloud.walletconnect.com
+  chains: [mainnet, sepolia],
+  ssr: true,
+})
+```
+
+**Catatan:** Untuk development lokal tanpa WalletConnect, bisa menggunakan injected connector:
+
+```typescript
+// config/wagmi.ts (alternative untuk development)
+import { http, createConfig } from 'wagmi'
+import { mainnet, sepolia, localhost } from 'wagmi/chains'
 import { injected } from 'wagmi/connectors'
 
 export const config = createConfig({
-  chains: [mainnet, sepolia],
+  chains: [localhost, mainnet, sepolia],
   connectors: [injected()],
   transports: {
     [mainnet.id]: http(),
@@ -289,7 +312,7 @@ export const config = createConfig({
 })
 ```
 
-#### 2. Setup Provider
+#### 2. Setup Provider dengan RainbowKit
 
 ```typescript
 // app/providers.tsx
@@ -297,7 +320,9 @@ export const config = createConfig({
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { WagmiProvider } from 'wagmi'
+import { RainbowKitProvider, darkTheme } from '@rainbow-me/rainbowkit'
 import { config } from '@/config/wagmi'
+import '@rainbow-me/rainbowkit/styles.css'
 
 const queryClient = new QueryClient()
 
@@ -305,9 +330,129 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
-        {children}
+        <RainbowKitProvider 
+          theme={darkTheme({
+            accentColor: '#7b3fe4',
+            accentColorForeground: 'white',
+          })}
+        >
+          {children}
+        </RainbowKitProvider>
       </QueryClientProvider>
     </WagmiProvider>
+  )
+}
+```
+
+#### 3. Environment Variables
+
+```bash
+# .env.local
+NEXT_PUBLIC_WALLET_CONNECT_PROJECT_ID=your-project-id
+```
+
+Dapatkan Project ID gratis di: https://cloud.walletconnect.com
+
+### Wallet Connection Component
+
+#### Connect Button
+
+```typescript
+// components/ConnectButton.tsx
+'use client'
+
+import { useAccount, useConnect, useDisconnect } from 'wagmi'
+import { ConnectButton as RainbowConnectButton } from '@rainbow-me/rainbowkit'
+
+export function ConnectButton() {
+  const { isConnected } = useAccount()
+  const { connect, connectors } = useConnect()
+  const { disconnect } = useDisconnect()
+
+  if (isConnected) {
+    return (
+      <RainbowConnectButton.ShowBalance />
+    )
+  }
+
+  return (
+    <RainbowConnectButton />
+  )
+}
+```
+
+#### Custom Connect Button
+
+```typescript
+// components/CustomConnectButton.tsx
+'use client'
+
+import { useAccount, useConnect, useDisconnect } from 'wagmi'
+import { useState } from 'react'
+
+export function CustomConnectButton() {
+  const { address, isConnected } = useAccount()
+  const { connect, connectors } = useConnect()
+  const { disconnect } = useDisconnect()
+  const [showModal, setShowModal] = useState(false)
+
+  const formatAddress = (addr: string) => {
+    return `${addr.slice(0, 6)}...${addr.slice(-4)}`
+  }
+
+  if (isConnected && address) {
+    return (
+      <div className="flex items-center gap-4">
+        <span className="text-sm font-mono bg-gray-100 px-3 py-1 rounded">
+          {formatAddress(address)}
+        </span>
+        <button
+          onClick={() => disconnect()}
+          className="text-sm text-red-500 hover:text-red-700"
+        >
+          Disconnect
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <button
+        onClick={() => setShowModal(true)}
+        className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700"
+      >
+        Connect Wallet
+      </button>
+
+      {showModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg max-w-sm w-full mx-4">
+            <h3 className="text-lg font-semibold mb-4">Connect Wallet</h3>
+            <div className="space-y-2">
+              {connectors.map((connector) => (
+                <button
+                  key={connector.uid}
+                  onClick={() => {
+                    connect({ connector })
+                    setShowModal(false)
+                  }}
+                  className="w-full p-3 border rounded-lg hover:bg-gray-50 flex items-center gap-3"
+                >
+                  {connector.name}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => setShowModal(false)}
+              className="mt-4 w-full text-center text-sm text-gray-500"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 ```
@@ -390,21 +535,24 @@ export const todoListAbi = [
 
 ### Hooks
 
-#### Read Tasks
+#### Read Tasks (dengan Auto-detect Wallet)
 
 ```typescript
 // hooks/useTasks.ts
 import { useReadContract } from 'wagmi'
+import { useAccount } from 'wagmi'
 import { todoListAbi } from '@/abi/todo'
 
 const CONTRACT_ADDRESS = '0x...' // Deploy contract dan isi alamatnya
 
-export function useTasks(address?: string) {
+export function useTasks() {
+  const { address } = useAccount()
+  
   return useReadContract({
     address: CONTRACT_ADDRESS,
     abi: todoListAbi,
     functionName: 'getUserTasks',
-    args: address ? [address as `0x${string}`] : undefined,
+    args: address ? [address] : undefined,
   })
 }
 ```
@@ -602,6 +750,118 @@ export function TodoItem({ task, onToggle }: { task: Task; onToggle: () => void 
 
 ---
 
+## 🎯 Main Page dengan Wallet Connection
+
+### Page Component
+
+```typescript
+// app/page.tsx
+'use client'
+
+import { useAccount } from 'wagmi'
+import { ConnectButton } from '@rainbow-me/rainbowkit'
+import { TodoList } from '@/components/TodoList'
+
+export default function HomePage() {
+  const { isConnected } = useAccount()
+
+  return (
+    <main className="min-h-screen bg-gray-50">
+      <header className="bg-white shadow-sm">
+        <div className="container mx-auto px-4 py-4 flex justify-between items-center">
+          <h1 className="text-2xl font-bold">Web3 Todo List</h1>
+          <ConnectButton />
+        </div>
+      </header>
+
+      <div className="container mx-auto px-4 py-8">
+        {isConnected ? (
+          <TodoList />
+        ) : (
+          <div className="text-center py-20">
+            <h2 className="text-xl mb-4">Welcome to Web3 Todo List</h2>
+            <p className="text-gray-600 mb-8">
+              Connect your wallet to start managing tasks on the blockchain
+            </p>
+            <ConnectButton />
+          </div>
+        )}
+      </div>
+    </main>
+  )
+}
+```
+
+### Improved TodoList with Wallet Prompt
+
+```typescript
+// components/TodoList.tsx
+'use client'
+
+import { useAccount, useConnect } from 'wagmi'
+import { useTasks } from '@/hooks/useTasks'
+import { TodoItem } from './TodoItem'
+import { AddTodoForm } from './AddTodoForm'
+import { ConnectButton } from '@rainbow-me/rainbowkit'
+
+export function TodoList() {
+  const { address, isConnected } = useAccount()
+  const { data: tasks, isLoading, refetch } = useTasks(address)
+  
+  if (isLoading) {
+    return (
+      <div className="flex justify-center py-8">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
+      </div>
+    )
+  }
+  
+  if (!isConnected) {
+    return (
+      <div className="text-center py-12 bg-white rounded-lg shadow">
+        <div className="mb-4">
+          <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+          </svg>
+        </div>
+        <h3 className="text-lg font-medium mb-2">Wallet Required</h3>
+        <p className="text-gray-500 mb-6">Please connect your wallet to view and manage tasks</p>
+        <ConnectButton />
+      </div>
+    )
+  }
+  
+  if (!tasks || tasks.length === 0) {
+    return (
+      <div className="space-y-6">
+        <AddTodoForm onSuccess={() => refetch()} />
+        <div className="text-center py-12 bg-white rounded-lg shadow">
+          <p className="text-gray-500">No tasks yet. Create your first task above!</p>
+        </div>
+      </div>
+    )
+  }
+  
+  return (
+    <div className="space-y-6">
+      <AddTodoForm onSuccess={() => refetch()} />
+      
+      <div className="space-y-3">
+        {tasks?.map((task) => (
+          <TodoItem 
+            key={task.id.toString()} 
+            task={task} 
+            onToggle={() => refetch()} 
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+```
+
+---
+
 ## ✅ Checklist
 
 - [ ] Setup Foundry project
@@ -610,6 +870,9 @@ export function TodoItem({ task, onToggle }: { task: Task; onToggle: () => void 
 - [ ] Write unit tests di Foundry
 - [ ] Deploy ke Anvil (local) atau Sepolia (testnet)
 - [ ] Setup Next.js dengan wagmi/viem
+- [ ] Install RainbowKit
+- [ ] Konfigurasi RainbowKitProvider di providers.tsx
+- [ ] Tambahkan ConnectButton ke page
 - [ ] Konfigurasi chains dan providers
 - [ ] Integrasi useReadContract untuk fetch tasks
 - [ ] Integrasi useWriteContract untuk add task
