@@ -1,0 +1,522 @@
+# Fullstack CRUD Example
+
+> Implementasi lengkap CRUD dengan Next.js 15, Drizzle ORM, Server Actions, Shadcn UI, dan Zustand
+
+---
+
+## 📋 Fitur yang Dibangun
+
+- Create post baru
+- Read semua post
+- Update post
+- Delete post
+- Filter post (all/active/completed)
+- Optimistic updates dengan Zustand
+
+---
+
+## 🗂️ Struktur Files
+
+```
+src/
+├── app/
+│   ├── posts/
+│   │   └── page.tsx         # Posts list + create form
+│   └── api/
+│       └── posts/
+│           └── route.ts    # API route (optional)
+├── components/
+│   ├── posts/
+│   │   ├── post-form.tsx
+│   │   ├── post-list.tsx
+│   │   └── post-item.tsx
+├── lib/
+│   └── db/
+│       ├── schema.ts        # Posts table
+│       └── index.ts         # DB client
+├── actions/
+│   └── posts.ts            # Server Actions
+└── stores/
+    └── use-post-store.ts   # Zustand store
+```
+
+---
+
+## 📦 Setup Database Schema
+
+### src/lib/db/schema.ts
+
+Tambahkan ke schema yang sudah ada:
+
+```typescript
+import { pgTable, serial, text, timestamp, boolean, integer } from 'drizzle-orm/pg-core';
+
+export const posts = pgTable('posts', {
+  id: serial('id').primaryKey(),
+  title: text('title').notNull(),
+  content: text('content').notNull(),
+  published: boolean('published').default(false).notNull(),
+  authorId: integer('author_id'), // nullable untuk tutorial
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+```
+
+Push ke database:
+
+```bash
+bunx drizzle-kit push
+```
+
+---
+
+## 🎯 Server Actions
+
+### src/actions/posts.ts
+
+```typescript
+"use server";
+
+import { db } from "@/lib/db";
+import { posts } from "@/lib/db/schema";
+import { eq, desc } from "drizzle-orm";
+import { revalidatePath } from "next/cache";
+
+export async function getPosts() {
+  const allPosts = await db
+    .select()
+    .from(posts)
+    .orderBy(desc(posts.createdAt));
+  
+  return allPosts;
+}
+
+export async function getPost(id: number) {
+  const post = await db
+    .select()
+    .from(posts)
+    .where(eq(posts.id, id))
+    .limit(1);
+  
+  return post[0] || null;
+}
+
+export async function createPost(formData: FormData) {
+  const title = formData.get("title") as string;
+  const content = formData.get("content") as string;
+  
+  if (!title || !content) {
+    throw new Error("Title and content are required");
+  }
+  
+  const result = await db
+    .insert(posts)
+    .values({
+      title,
+      content,
+      published: false,
+    })
+    .returning();
+  
+  revalidatePath("/posts");
+  
+  return result[0];
+}
+
+export async function updatePost(id: number, formData: FormData) {
+  const title = formData.get("title") as string;
+  const content = formData.get("content") as string;
+  const published = formData.get("published") === "on";
+  
+  const result = await db
+    .update(posts)
+    .set({
+      title,
+      content,
+      published,
+      updatedAt: new Date(),
+    })
+    .where(eq(posts.id, id))
+    .returning();
+  
+  revalidatePath("/posts");
+  
+  return result[0];
+}
+
+export async function deletePost(id: number) {
+  await db
+    .delete(posts)
+    .where(eq(posts.id, id));
+  
+  revalidatePath("/posts");
+}
+
+export async function togglePublish(id: number, published: boolean) {
+  await db
+    .update(posts)
+    .set({ published })
+    .where(eq(posts.id, id));
+  
+  revalidatePath("/posts");
+}
+```
+
+---
+
+## 🗃️ Zustand Store
+
+### src/stores/use-post-store.ts
+
+```typescript
+import { create } from 'zustand';
+
+interface Post {
+  id: number;
+  title: string;
+  content: string;
+  published: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+interface PostState {
+  posts: Post[];
+  isLoading: boolean;
+  filter: 'all' | 'published' | 'draft';
+  setPosts: (posts: Post[]) => void;
+  addPost: (post: Post) => void;
+  updatePost: (id: number, updates: Partial<Post>) => void;
+  removePost: (id: number) => void;
+  setFilter: (filter: 'all' | 'published' | 'draft') => void;
+  setLoading: (loading: boolean) => void;
+}
+
+export const usePostStore = create<PostState>((set) => ({
+  posts: [],
+  isLoading: false,
+  filter: 'all',
+  
+  setPosts: (posts) => set({ posts }),
+  
+  addPost: (post) => set((state) => ({ 
+    posts: [post, ...state.posts] 
+  })),
+  
+  updatePost: (id, updates) => set((state) => ({
+    posts: state.posts.map((post) =>
+      post.id === id ? { ...post, ...updates } : post
+    ),
+  })),
+  
+  removePost: (id) => set((state) => ({
+    posts: state.posts.filter((post) => post.id !== id),
+  })),
+  
+  setFilter: (filter) => set({ filter }),
+  
+  setLoading: (isLoading) => set({ isLoading }),
+}));
+```
+
+---
+
+## 🎨 UI Components
+
+### src/components/posts/post-form.tsx
+
+```typescript
+"use client";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { useState } from "react";
+import { usePostStore } from "@/stores/use-post-store";
+
+export function PostForm() {
+  const [title, setTitle] = useState("");
+  const [content, setContent] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const addPost = usePostStore((state) => state.addPost);
+  
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    
+    try {
+      const formData = new FormData();
+      formData.append("title", title);
+      formData.append("content", content);
+      
+      // Call server action
+      const { createPost } = await import("@/actions/posts");
+      const newPost = await createPost(formData);
+      
+      // Optimistic update
+      addPost(newPost);
+      
+      // Reset form
+      setTitle("");
+      setContent("");
+    } catch (error) {
+      console.error("Failed to create post", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div>
+        <Input
+          placeholder="Post title"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          required
+        />
+      </div>
+      <div>
+        <Textarea
+          placeholder="Post content"
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          required
+        />
+      </div>
+      <Button type="submit" disabled={isLoading}>
+        {isLoading ? "Creating..." : "Create Post"}
+      </Button>
+    </form>
+  );
+}
+```
+
+---
+
+### src/components/posts/post-item.tsx
+
+```typescript
+"use client";
+
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { usePostStore } from "@/stores/use-post-store";
+import { formatDistanceToNow } from "date-fns";
+
+interface PostItemProps {
+  post: {
+    id: number;
+    title: string;
+    content: string;
+    published: boolean;
+    createdAt: Date;
+  };
+}
+
+export function PostItem({ post }: PostItemProps) {
+  const removePost = usePostStore((state) => state.removePost);
+  const updatePost = usePostStore((state) => state.updatePost);
+  
+  const handleToggle = async () => {
+    try {
+      const { togglePublish } = await import("@/actions/posts");
+      await togglePublish(post.id, !post.published);
+      updatePost(post.id, { published: !post.published });
+    } catch (error) {
+      console.error("Failed to toggle", error);
+    }
+  };
+  
+  const handleDelete = async () => {
+    if (!confirm("Are you sure?")) return;
+    
+    try {
+      const { deletePost } = await import("@/actions/posts");
+      await deletePost(post.id);
+      removePost(post.id);
+    } catch (error) {
+      console.error("Failed to delete", error);
+    }
+  };
+  
+  return (
+    <Card className={post.published ? "border-green-500" : ""}>
+      <CardHeader className="pb-2">
+        <div className="flex items-start justify-between">
+          <CardTitle className="text-lg">{post.title}</CardTitle>
+          <Checkbox
+            checked={post.published}
+            onCheckedChange={handleToggle}
+          />
+        </div>
+      </CardHeader>
+      <CardContent>
+        <p className="text-sm text-gray-600 mb-4">{post.content}</p>
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-gray-400">
+            {formatDistanceToNow(new Date(post.createdAt), { addSuffix: true })}
+          </span>
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={handleDelete}
+          >
+            Delete
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+---
+
+### src/components/posts/post-list.tsx
+
+```typescript
+"use client";
+
+import { usePostStore } from "@/stores/use-post-store";
+import { PostItem } from "./post-item";
+import { useEffect, useState } from "react";
+
+export function PostList() {
+  const { posts, filter, setPosts, isLoading, setLoading } = usePostStore();
+  const [mounted, setMounted] = useState(false);
+  
+  useEffect(() => {
+    setMounted(true);
+    
+    async function fetchPosts() {
+      setLoading(true);
+      try {
+        const { getPosts } = await import("@/actions/posts");
+        const data = await getPosts();
+        setPosts(data);
+      } catch (error) {
+        console.error("Failed to fetch posts", error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    
+    fetchPosts();
+  }, [setPosts, setLoading]);
+  
+  const filteredPosts = posts.filter((post) => {
+    if (filter === 'published') return post.published;
+    if (filter === 'draft') return !post.published;
+    return true;
+  });
+  
+  if (!mounted || isLoading) {
+    return <div>Loading...</div>;
+  }
+  
+  if (filteredPosts.length === 0) {
+    return (
+      <div className="text-center py-8 text-gray-500">
+        No posts yet. Create your first post!
+      </div>
+    );
+  }
+  
+  return (
+    <div className="space-y-4">
+      {filteredPosts.map((post) => (
+        <PostItem key={post.id} post={post} />
+      ))}
+    </div>
+  );
+}
+```
+
+---
+
+## 📄 Posts Page
+
+### src/app/posts/page.tsx
+
+```typescript
+import { PostForm } from "@/components/posts/post-form";
+import { PostList } from "@/components/posts/post-list";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { usePostStore } from "@/stores/use-post-store";
+
+function FilterTabs() {
+  const { filter, setFilter } = usePostStore();
+  
+  return (
+    <Tabs value={filter} onValueChange={(v) => setFilter(v as any)}>
+      <TabsList>
+        <TabsTrigger value="all">All</TabsTrigger>
+        <TabsTrigger value="published">Published</TabsTrigger>
+        <TabsTrigger value="draft">Drafts</TabsTrigger>
+      </TabsList>
+    </Tabs>
+  );
+}
+
+export default function PostsPage() {
+  return (
+    <div className="container mx-auto py-8 max-w-4xl">
+      <h1 className="text-3xl font-bold mb-8">Posts</h1>
+      
+      <div className="grid gap-8">
+        <div>
+          <h2 className="text-xl font-semibold mb-4">Create New Post</h2>
+          <PostForm />
+        </div>
+        
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold">Your Posts</h2>
+            <FilterTabs />
+          </div>
+          <PostList />
+        </div>
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
+## ✅ Verifikasi
+
+1. Buka `http://localhost:3000/posts`
+2. Buat post baru
+3. Toggle publish/draft
+4. Delete post
+5. Cek filter works
+
+---
+
+## 📋 Complete Checklist
+
+- [ ] Database schema dengan Drizzle
+- [ ] Server Actions (CRUD)
+- [ ] Zustand store dengan optimistic updates
+- [ ] PostForm component
+- [ ] PostList component  
+- [ ] PostItem component
+- [ ] Posts page dengan filter tabs
+- [ ] Semua berfungsi dengan benar
+
+---
+
+## 🎉 Kesimpulan
+
+Tutorial ini sudah mencakup:
+
+1. **Next.js 15** - App Router, Server Actions
+2. **Drizzle ORM** - Type-safe database operations
+3. **Better Auth** - Authentication
+4. **Shadcn UI** - Beautiful components
+5. **Zustand** - State management
+
+Dengan kombinasi ini, kamu sudah bisa membangun aplikasi fullstack yang modern dan scalable!

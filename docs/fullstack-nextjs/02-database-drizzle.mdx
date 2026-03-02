@@ -1,0 +1,271 @@
+# Setup Drizzle ORM
+
+> Konfigurasi Drizzle ORM dengan PostgreSQL untuk type-safe database operations
+
+---
+
+## 📋 Prerequisites
+
+Pastikan PostgreSQL sudah terinstall dan running:
+
+```bash
+# Untuk macOS dengan Homebrew
+brew services start postgresql@16
+
+# Cek status
+brew services list
+```
+
+Buat database baru:
+
+```bash
+createdb myapp
+```
+
+---
+
+## 📦 Install Dependencies
+
+```bash
+# Install Drizzle ORM dan driver
+bun add drizzle-orm postgres
+
+# Install Drizzle Kit untuk migrations
+bun add -D drizzle-kit
+
+# Install dotenv untuk environment variables
+bun add dotenv
+```
+
+---
+
+## ⚙️ Konfigurasi Environment
+
+### .env.local
+
+```bash
+DATABASE_URL=postgresql://postgres:password@localhost:5432/myapp?schema=public
+```
+
+Ganti `postgres:password` dengan username dan password PostgreSQL kamu.
+
+---
+
+## 🗂️ Setup Schema
+
+### src/lib/db/schema.ts
+
+```typescript
+import { pgTable, serial, text, timestamp, boolean, integer } from 'drizzle-orm/pg-core';
+
+export const users = pgTable('users', {
+  id: serial('id').primaryKey(),
+  name: text('name').notNull(),
+  email: text('email').notNull().unique(),
+  emailVerified: timestamp('email_verified'),
+  image: text('image'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export const posts = pgTable('posts', {
+  id: serial('id').primaryKey(),
+  title: text('title').notNull(),
+  content: text('content').notNull(),
+  published: boolean('published').default(false).notNull(),
+  authorId: integer('author_id').references(() => users.id).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export const sessions = pgTable('sessions', {
+  id: text('id').primaryKey(),
+  expiresAt: timestamp('expires_at'),
+  token: text('token').notNull().unique(),
+  createdAt: timestamp('created_at'),
+  updatedAt: timestamp('updated_at'),
+  ipAddress: text('ip_address'),
+  userAgent: text('user_agent'),
+  userId: integer('user_id').references(() => users.id).notNull(),
+});
+
+export const accounts = pgTable('accounts', {
+  id: text('id').primaryKey(),
+  accountId: text('account_id').notNull(),
+  providerId: text('provider_id').notNull(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  accessToken: text('access_token'),
+  refreshToken: text('refresh_token'),
+  idToken: text('id_token'),
+  accessTokenExpiresAt: timestamp('access_token_expires_at'),
+  refreshTokenExpiresAt: timestamp('refresh_token_expires_at'),
+  scope: text('scope'),
+  password: text('password'),
+  createdAt: timestamp('created_at'),
+  updatedAt: timestamp('updated_at'),
+});
+
+export const verifications = pgTable('verifications', {
+  id: text('id').primaryKey(),
+  identifier: text('identifier').notNull(),
+  value: text('value').notNull(),
+  expiresAt: timestamp('expires_at').notNull(),
+  createdAt: timestamp('created_at'),
+  updatedAt: timestamp('updated_at'),
+});
+```
+
+---
+
+## 🔌 Database Client
+
+### src/lib/db/index.ts
+
+```typescript
+import { drizzle } from 'drizzle-orm/postgres-js';
+import postgres from 'postgres';
+import * as schema from './schema';
+
+const connectionString = process.env.DATABASE_URL!;
+
+const client = postgres(connectionString, { 
+  max: 10,
+  connections: (c) => ({ total: 10, idle: 10, acquired: 0 })
+});
+
+export const db = drizzle(client, { schema });
+```
+
+---
+
+## ⚙️ Drizzle Config
+
+### drizzle.config.ts
+
+```typescript
+import { defineConfig } from 'drizzle-kit';
+
+export default defineConfig({
+  schema: './src/lib/db/schema.ts',
+  out: './drizzle',
+  dialect: 'postgresql',
+  dbCredentials: {
+    url: process.env.DATABASE_URL!,
+  },
+  verbose: true,
+  strict: true,
+});
+```
+
+---
+
+## 🔄 migrations Table
+
+Drizzle Kit membutuhkan tabel migrations. Buat manual atau biarkan auto-generated:
+
+```sql
+CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
+  id SERIAL PRIMARY KEY,
+  hash TEXT NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+```
+
+---
+
+## 🚀 Commands
+
+### Push Schema ke Database
+
+```bash
+bunx drizzle-kit push
+```
+
+Ini akan membuat tabel-tabel sesuai schema.
+
+### Generate Migration
+
+```bash
+bunx drizzle-kit generate
+```
+
+Akan menghasilkan file migration di folder `drizzle/`.
+
+---
+
+## 📖 Contoh Query
+
+### Select
+
+```typescript
+import { db } from '@/lib/db';
+import { users } from '@/lib/db/schema';
+
+const allUsers = await db.select().from(users);
+```
+
+### Insert
+
+```typescript
+import { db } from '@/lib/db';
+import { users } from '@/lib/db/schema';
+
+const newUser = await db.insert(users).values({
+  name: 'John Doe',
+  email: 'john@example.com',
+}).returning();
+```
+
+### Update
+
+```typescript
+import { db } from '@/lib/db';
+import { users } from '@/lib/db/schema';
+import { eq } from 'drizzle-orm';
+
+const updatedUser = await db.update(users)
+  .set({ name: 'Jane Doe' })
+  .where(eq(users.id, 1))
+  .returning();
+```
+
+### Delete
+
+```typescript
+import { db } from '@/lib/db';
+import { users } from '@/lib/db/schema';
+import { eq } from 'drizzle-orm';
+
+await db.delete(users).where(eq(users.id, 1));
+```
+
+---
+
+## ✅ Verifikasi
+
+Cek apakah tabel sudah dibuat:
+
+```bash
+# Masuk ke PostgreSQL
+psql -U postgres -d myapp
+
+# List tables
+\dt
+```
+
+---
+
+## 📋 Checklist
+
+- [ ] PostgreSQL running
+- [ ] Database `myapp` dibuat
+- [ ] Dependencies terinstall
+- [ ] Schema Drizzle sudah dikonfigurasi
+- [ ] Tabel berhasil di-push ke database
+
+---
+
+## ⏭️ Selanjutnya
+
+Lanjut ke materi berikutnya:
+- [03-auth-better-auth.mdx](./03-auth-better-auth.mdx) - Setup Better Auth

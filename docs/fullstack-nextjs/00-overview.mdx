@@ -1,0 +1,207 @@
+# Fullstack Next.js Tutorial
+
+> Panduan lengkap membangun aplikasi fullstack dengan Next.js 15, TailwindCSS, Shadcn UI, Drizzle ORM, dan Better Auth
+
+---
+
+## 📋 Project Overview
+
+**Fullstack Next.js** adalah tutorial komprehensif untuk membangun aplikasi web modern dengan stack teknologi terupdate. Tutorial ini mencakup setup project, database dengan Drizzle ORM, authentication dengan Better Auth, UI components dengan Shadcn UI, dan state management dengan Zustand.
+
+| Aspek | Detail |
+|-------|--------|
+| **Nama Proyek** | Fullstack Next.js Tutorial |
+| **Arsitektur** | Next.js 15 App Router + Server Actions + Client Components |
+| **Target** | Developer yang ingin mempelajari fullstack development dengan Next.js |
+| **Pendekatan** | Step-by-step dari setup hingga deployment |
+
+---
+
+## 🏗️ Tech Stack
+
+### Core Framework
+
+| Komponen | Versi | Keterangan |
+|----------|-------|------------|
+| **Next.js** | 15.x | React framework dengan App Router |
+| **React** | 19.x | UI library |
+| **TypeScript** | 5.x | Type safety |
+| **Bun** | latest | Runtime dan package manager |
+
+### Styling & UI
+
+| Komponen | Versi | Keterangan |
+|----------|-------|------------|
+| **TailwindCSS** | 4.x | Utility-first CSS framework |
+| **Shadcn UI** | 0.9.x | Reusable components (copy-paste) |
+| **Radix UI** | latest | Headless UI primitives |
+| **Lucide React** | latest | Icons |
+
+### Database & ORM
+
+| Komponen | Versi | Keterangan |
+|----------|-------|------------|
+| **Drizzle ORM** | 0.31.x | Type-safe ORM |
+| **Drizzle Kit** | 0.31.x | Migration tool |
+| **PostgreSQL** | 16.x | Primary database |
+| **postgres.js** | latest | PostgreSQL driver |
+
+### Authentication
+
+| Komponen | Versi | Keterangan |
+|----------|-------|------------|
+| **Better Auth** | 1.3.x | Authentication framework |
+| **Better Auth React** | 1.3.x | React hooks untuk auth |
+
+### State Management
+
+| Komponen | Versi | Keterangan |
+|----------|-------|------------|
+| **Zustand** | 5.x | Lightweight state management |
+| **React Context** | built-in | Untuk auth state |
+
+---
+
+## 📚 Daftar Materi
+
+| No. | File | Konten |
+|-----|------|--------|
+| 00 | `00-overview.mdx` | Overview proyek, arsitektur, tech stack (file ini) |
+| 01 | `01-setup.mdx` | Setup project Next.js 15 dengan Bun |
+| 02 | `02-database-drizzle.mdx` | Setup Drizzle ORM dengan PostgreSQL |
+| 03 | `03-auth-better-auth.mdx` | Setup Better Auth untuk authentication |
+| 04 | `04-components-shadcn.mdx` | Setup dan penggunaan Shadcn UI |
+| 05 | `05-state-zustand.mdx` | State management dengan Zustand |
+| 06 | `06-crud-example.mdx` | Contoh implementasi CRUD lengkap |
+
+---
+
+## ✅ Prerequisites
+
+Sebelum memulai, pastikan Anda memiliki:
+
+### Tools
+- [ ] Bun terinstall (https://bun.sh)
+- [ ] PostgreSQL terinstall (atau gunakan cloud DB)
+- [ ] Git terinstall
+- [ ] Code editor (VS Code recommended)
+
+### Pengetahuan Dasar
+- [ ] Pemahaman dasar JavaScript/TypeScript
+- [ ] Pemahaman dasar React hooks
+- [ ] Pemahaman dasar SQL
+
+---
+
+## 🚀 Mengapa Stack Ini?
+
+### Next.js 15
+- App Router untuk server/client component separation
+- Server Actions untuk mutations tanpa API routes
+- Turbopack untuk development speed
+
+### Drizzle ORM
+- Type-safe dari awal hingga akhir
+- Lightweight - hanya ~30KB
+- Migration yang predictable
+
+### Better Auth
+- Type-safe
+- Plugin ecosystem yang rich
+- Framework agnostic
+
+### Shadcn UI
+- Copy-paste ke project (bukan npm package)
+- Penuh customization
+- A11y yang baik
+
+### Zustand
+- Simple API (hanya hooks)
+- No boilerplate
+- Transient updates tanpa re-render
+
+---
+
+## 📋 Quick Reference
+
+### Project Structure
+
+```
+my-app/
+├── src/
+│   ├── app/                 # App Router pages
+│   │   ├── api/            # API routes
+│   │   ├── (auth)/         # Auth pages
+│   │   ├── dashboard/      # Protected pages
+│   │   ├── layout.tsx
+│   │   └── page.tsx
+│   ├── components/         # React components
+│   │   ├── ui/            # Shadcn components
+│   │   └── ...
+│   ├── lib/               # Utilities
+│   │   ├── db.ts          # Drizzle client
+│   │   ├── auth.ts        # Better Auth config
+│   │   └── ...
+│   ├── stores/            # Zustand stores
+│   └── actions/           # Server Actions
+├── drizzle/               # Migrations
+├── public/               # Static assets
+├── drizzle.config.ts
+├── next.config.ts
+└── tailwind.config.ts
+```
+
+### Environment Variables
+
+```bash
+# .env.local
+DATABASE_URL=postgresql://user:password@localhost:5432/mydb
+BETTER_AUTH_SECRET=your-secret-key
+BETTER_AUTH_URL=http://localhost:3000
+```
+
+### Common Commands
+
+```bash
+# Setup
+bun create next-app@latest my-app --yes
+cd my-app
+
+# Database
+bunx drizzle-kit push
+bunx drizzle-kit generate
+
+# Development
+bun dev
+bun build
+```
+
+---
+
+## 📖 Cara Menggunakan Tutorial Ini
+
+### Untuk Pemula
+
+Mulai dari **Materi 01 (Setup)** - ini memperkenalkan:
+- Inisialisasi project Next.js
+- Struktur folder App Router
+- Konfigurasi dasar
+
+### Urutan yang Disarankan
+
+```
+Setup → Database → Auth → Components → State → CRUD
+  (01)    (02)      (03)     (04)       (05)    (06)
+```
+
+Setiap materi membangun pengetahuan dari materi sebelumnya.
+
+---
+
+## 🔗 Link Berguna
+
+- [Next.js Documentation](https://nextjs.org/docs)
+- [Drizzle ORM Docs](https://orm.drizzle.team)
+- [Better Auth Docs](https://www.better-auth.com)
+- [Shadcn UI Docs](https://ui.shadcn.com)
+- [Zustand Docs](https://zustand-demo.pmnd.rs)

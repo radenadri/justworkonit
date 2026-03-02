@@ -1,0 +1,344 @@
+# Setup Zustand
+
+> State management dengan Zustand untuk React/Next.js applications
+
+---
+
+## 📦 Install Zustand
+
+```bash
+bun add zustand
+```
+
+---
+
+## 🏗️ Membuat Store
+
+### src/stores/use-counter-store.ts
+
+```typescript
+import { create } from 'zustand';
+
+interface CounterState {
+  count: number;
+  increment: () => void;
+  decrement: () => void;
+  reset: () => void;
+}
+
+export const useCounterStore = create<CounterState>((set) => ({
+  count: 0,
+  increment: () => set((state) => ({ count: state.count + 1 })),
+  decrement: () => set((state) => ({ count: state.count - 1 })),
+  reset: () => set({ count: 0 }),
+}));
+```
+
+---
+
+## 💡 Menggunakan Store
+
+### src/components/counter.tsx
+
+```typescript
+"use client";
+
+import { useCounterStore } from "@/stores/use-counter-store";
+
+export function Counter() {
+  const { count, increment, decrement, reset } = useCounterStore();
+
+  return (
+    <div className="flex items-center gap-4">
+      <button
+        onClick={decrement}
+        className="rounded-md bg-gray-200 px-3 py-1"
+      >
+        -
+      </button>
+      <span className="text-2xl font-bold">{count}</span>
+      <button
+        onClick={increment}
+        className="rounded-md bg-gray-200 px-3 py-1"
+      >
+        +
+      </button>
+      <button
+        onClick={reset}
+        className="text-sm text-red-500"
+      >
+        Reset
+      </button>
+    </div>
+  );
+}
+```
+
+---
+
+## 🔧 Store dengan Actions dan Persist
+
+### src/stores/use-cart-store.ts
+
+```typescript
+import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
+
+interface CartItem {
+  id: string;
+  name: string;
+  price: number;
+  quantity: number;
+}
+
+interface CartState {
+  items: CartItem[];
+  addItem: (item: Omit<CartItem, 'quantity'>) => void;
+  removeItem: (id: string) => void;
+  updateQuantity: (id: string, quantity: number) => void;
+  clearCart: () => void;
+  total: () => number;
+}
+
+export const useCartStore = create<CartState>()(
+  persist(
+    (set, get) => ({
+      items: [],
+      
+      addItem: (item) => {
+        const items = get().items;
+        const existing = items.find((i) => i.id === item.id);
+        
+        if (existing) {
+          set({
+            items: items.map((i) =>
+              i.id === item.id
+                ? { ...i, quantity: i.quantity + 1 }
+                : i
+            ),
+          });
+        } else {
+          set({ items: [...items, { ...item, quantity: 1 }] });
+        }
+      },
+      
+      removeItem: (id) => {
+        set({ items: get().items.filter((i) => i.id !== id) });
+      },
+      
+      updateQuantity: (id, quantity) => {
+        set({
+          items: get().items.map((i) =>
+            i.id === id ? { ...i, quantity } : i
+          ),
+        });
+      },
+      
+      clearCart: () => set({ items: [] }),
+      
+      total: () => {
+        return get().items.reduce(
+          (sum, item) => sum + item.price * item.quantity,
+          0
+        );
+      },
+    }),
+    {
+      name: 'cart-storage',
+      storage: createJSONStorage(() => localStorage),
+    }
+  )
+);
+---
+
+## 🎯 Store dengan Computed Values
+
+### src/stores/use-todo-store.ts
+
+```typescript
+import { create } from 'zustand';
+
+interface Todo {
+  id: string;
+  text: string;
+  completed: boolean;
+}
+
+interface TodoState {
+  todos: Todo[];
+  filter: 'all' | 'active' | 'completed';
+  addTodo: (text: string) => void;
+  toggleTodo: (id: string) => void;
+  deleteTodo: (id: string) => void;
+  setFilter: (filter: 'all' | 'active' | 'completed') => void;
+  getFilteredTodos: () => Todo[];
+}
+
+export const useTodoStore = create<TodoState>((set, get) => ({
+  todos: [],
+  filter: 'all',
+  
+  addTodo: (text) => {
+    const newTodo: Todo = {
+      id: crypto.randomUUID(),
+      text,
+      completed: false,
+    };
+    set({ todos: [...get().todos, newTodo] });
+  },
+  
+  toggleTodo: (id) => {
+    set({
+      todos: get().todos.map((todo) =>
+        todo.id === id ? { ...todo, completed: !todo.completed } : todo
+      ),
+    });
+  },
+  
+  deleteTodo: (id) => {
+    set({ todos: get().todos.filter((todo) => todo.id !== id) });
+  },
+  
+  setFilter: (filter) => set({ filter }),
+  
+  getFilteredTodos: () => {
+    const { todos, filter } = get();
+    switch (filter) {
+      case 'active':
+        return todos.filter((todo) => !todo.completed);
+      case 'completed':
+        return todos.filter((todo) => todo.completed);
+      default:
+        return todos;
+    }
+  },
+}));
+```
+
+---
+
+## 🔄 Menggunakan dengan Server Data
+
+### src/stores/use-post-store.ts
+
+```typescript
+import { create } from 'zustand';
+
+interface Post {
+  id: number;
+  title: string;
+  body: string;
+}
+
+interface PostState {
+  posts: Post[];
+  isLoading: boolean;
+  error: string | null;
+  fetchPosts: () => Promise<void>;
+  addPost: (post: Omit<Post, 'id'>) => Promise<void>;
+}
+
+export const usePostStore = create<PostState>((set) => ({
+  posts: [],
+  isLoading: false,
+  error: null,
+  
+  fetchPosts: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      const res = await fetch('https://jsonplaceholder.typicode.com/posts');
+      const data = await res.json();
+      set({ posts: data.slice(0, 10), isLoading: false });
+    } catch (error) {
+      set({ error: 'Failed to fetch posts', isLoading: false });
+    }
+  },
+  
+  addPost: async (post) => {
+    try {
+      const res = await fetch('https://jsonplaceholder.typicode.com/posts', {
+        method: 'POST',
+        body: JSON.stringify(post),
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json();
+      set({ posts: [{ ...post, id: data.id }, ...get().posts] });
+    } catch (error) {
+      console.error('Failed to add post', error);
+    }
+  },
+}));
+```
+
+---
+
+## ⚡ Transient Updates (Advanced)
+
+Untuk performance optimization - update tanpa re-render:
+
+```typescript
+import { create } from 'zustand';
+import { subscribeWithSelector } from 'zustand/middleware';
+
+export const useStore = create()(
+  subscribeWithSelector((set) => ({
+    // ...
+  }))
+);
+
+// Subscribe tanpa re-render
+useStore.subscribe(
+  (state) => state.someValue,
+  (someValue) => {
+    // Do something with someValue
+  }
+);
+```
+
+---
+
+## 🧪 Zustand DevTools
+
+Untuk development mode:
+
+```typescript
+import { create } from 'zustand';
+import { devtools } from 'zustand/middleware';
+
+export const useStore = create(
+  devtools(
+    (set) => ({
+      // ...
+    }),
+    { name: 'my-store' }
+  )
+);
+```
+
+---
+
+## ✅ Kapan Gunakan Zustand?
+
+| Use Zustand | Use Server Actions |
+|-------------|-------------------|
+| UI state (modals, sidebars) | Data mutations |
+| Local component state | Database operations |
+| Cached API responses | Form submissions |
+| User preferences | Authentication |
+| Shopping cart | File uploads |
+
+---
+
+## 📋 Checklist
+
+- [ ] Zustand terinstall
+- [ ] Simple counter store dibuat dan berfungsi
+- [ ] Persist middleware digunakan
+- [ ] Store dengan computed values dibuat
+
+---
+
+## ⏭️ Selanjutnya
+
+Lanjut ke materi terakhir:
+- [06-crud-example.mdx](./06-crud-example.mdx) - Full CRUD Example

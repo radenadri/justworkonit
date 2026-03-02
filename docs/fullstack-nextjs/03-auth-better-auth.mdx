@@ -1,0 +1,432 @@
+# Setup Better Auth
+
+> Konfigurasi authentication dengan Better Auth untuk Next.js App Router
+
+---
+
+## 📦 Install Dependencies
+
+```bash
+# Install Better Auth core
+bun add better-auth
+
+# Install Better Auth React hooks
+bun add better-auth-react
+```
+
+---
+
+## ⚙️ Konfigurasi Auth
+
+### src/lib/auth.ts
+
+```typescript
+import { betterAuth } from "better-auth";
+import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { db } from "./db";
+import * as schema from "./db/schema";
+
+export const auth = betterAuth({
+  database: drizzleAdapter(db, {
+    provider: "pg",
+    schema: {
+      user: schema.users,
+      session: schema.sessions,
+      account: schema.accounts,
+      verification: schema.verifications,
+    },
+  },
+  emailAndPassword: {
+    enabled: true,
+    requireEmailVerification: false,
+  },
+  socialProviders: {
+    github: {
+      clientId: process.env.GITHUB_CLIENT_ID!,
+      clientSecret: process.env.GITHUB_CLIENT_SECRET!,
+    },
+    google: {
+      clientId: process.env.GOOGLE_CLIENT_ID!,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+    },
+  },
+  session: {
+    expiresIn: 60 * 60 * 24 * 7, // 7 days
+    updateAge: 60 * 60 * 24, // 1 day
+  },
+});
+```
+
+---
+
+## 🔐 Setup API Route
+
+### src/app/api/auth/[...all]/route.ts
+
+```typescript
+import { toNextJsHandler } from "better-auth/next-js";
+import { auth } from "@/lib/auth";
+
+export const { GET, POST } = toNextJsHandler(auth);
+```
+
+---
+
+## ⚙️ Next.js Config
+
+### next.config.ts
+
+Tambahkan `better-auth` ke serverExternalPackages:
+
+```typescript
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  serverExternalPackages: ["better-auth"],
+};
+
+export default nextConfig;
+```
+
+---
+
+## 🔑 Environment Variables
+
+### .env.local
+
+```bash
+# Database (sudah ada dari Drizzle)
+DATABASE_URL=postgresql://postgres:password@localhost:5432/myapp?schema=public
+
+# Better Auth
+BETTER_AUTH_SECRET=your-super-secret-key-at-least-32-chars
+BETTER_AUTH_URL=http://localhost:3000
+
+# GitHub OAuth (optional)
+GITHUB_CLIENT_ID=your-github-client-id
+GITHUB_CLIENT_SECRET=your-github-client-secret
+
+# Google OAuth (optional)
+GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+```
+
+Buat secret dengan:
+
+```bash
+openssl rand -base64 32
+```
+
+---
+
+## 🎣 React Hooks
+
+### src/components/auth-provider.tsx
+
+```typescript
+"use client";
+
+import { useSession } from "better-auth-react";
+import { redirect } from "next/navigation";
+import { ReactNode } from "react";
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const { data: session, isLoading } = useSession();
+
+  if (isLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900" />
+      </div>
+    );
+  }
+
+  if (!session) {
+    redirect("/sign-in");
+  }
+
+  return <>{children}</>;
+}
+```
+
+---
+
+## 📝 Sign In Page
+
+### src/app/sign-in/page.tsx
+
+```typescript
+"use client";
+
+import { signIn } from "better-auth/react";
+import { useState } from "react";
+
+export default function SignInPage() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleEmailPasswordSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+
+    try {
+      await signIn.email({
+        email,
+        password,
+      });
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="flex min-h-screen items-center justify-center">
+      <div className="w-full max-w-md space-y-8 p-8">
+        <div className="text-center">
+          <h2 className="text-2xl font-bold">Sign In</h2>
+          <p className="mt-2 text-sm text-gray-600">
+            Sign in to your account
+          </p>
+        </div>
+
+        <form onSubmit={handleEmailPasswordSignIn} className="space-y-4">
+          <div>
+            <label htmlFor="email" className="block text-sm font-medium">
+              Email
+            </label>
+            <input
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2"
+              required
+            />
+          </div>
+
+          <div>
+            <label htmlFor="password" className="block text-sm font-medium">
+              Password
+            </label>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2"
+              required
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={isLoading}
+            className="w-full rounded-md bg-black px-4 py-2 text-white hover:bg-gray-800 disabled:opacity-50"
+          >
+            {isLoading ? "Signing in..." : "Sign In"}
+          </button>
+        </form>
+
+        <div className="relative">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t" />
+          </div>
+          <div className="relative flex justify-center text-sm">
+            <span className="bg-white px-2 text-gray-500">Or continue with</span>
+          </div>
+        </div>
+
+        <div className="flex gap-4">
+          <button
+            onClick={() => signIn.social({ provider: "github" })}
+            className="flex-1 rounded-md border border-gray-300 px-4 py-2 hover:bg-gray-50"
+          >
+            GitHub
+          </button>
+          <button
+            onClick={() => signIn.social({ provider: "google" })}
+            className="flex-1 rounded-md border border-gray-300 px-4 py-2 hover:bg-gray-50"
+          >
+            Google
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
+## 📝 Sign Up Page
+
+### src/app/sign-up/page.tsx
+
+```typescript
+"use client";
+
+import { signUp } from "better-auth/react";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+
+export default function SignUpPage() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const router = useRouter();
+
+  const handleSignUp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+
+    try {
+      await signUp.email({
+        email,
+        password,
+        name,
+      });
+      router.push("/");
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="flex min-h-screen items-center justify-center">
+      <div className="w-full max-w-md space-y-8 p-8">
+        <div className="text-center">
+          <h2 className="text-2xl font-bold">Sign Up</h2>
+          <p className="mt-2 text-sm text-gray-600">
+            Create a new account
+          </p>
+        </div>
+
+        <form onSubmit={handleSignUp} className="space-y-4">
+          <div>
+            <label htmlFor="name" className="block text-sm font-medium">
+              Name
+            </label>
+            <input
+              id="name"
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2"
+              required
+            />
+          </div>
+
+          <div>
+            <label htmlFor="email" className="block text-sm font-medium">
+              Email
+            </label>
+            <input
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2"
+              required
+            />
+          </div>
+
+          <div>
+            <label htmlFor="password" className="block text-sm font-medium">
+              Password
+            </label>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2"
+              required
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={isLoading}
+            className="w-full rounded-md bg-black px-4 py-2 text-white hover:bg-gray-800 disabled:opacity-50"
+          >
+            {isLoading ? "Creating account..." : "Sign Up"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
+## 🚪 Sign Out
+
+### src/app/sign-out/action.ts
+
+```typescript
+"use server";
+
+import { signOut } from "@/lib/auth";
+import { redirect } from "next/navigation";
+
+export async function signOutAction() {
+  await signOut();
+  redirect("/sign-in");
+}
+```
+
+### src/components/sign-out-button.tsx
+
+```typescript
+"use client";
+
+import { useSignOut } from "better-auth-react";
+
+export function SignOutButton() {
+  const { signOut } = useSignOut();
+
+  return (
+    <button
+      onClick={() => signOut()}
+      className="text-sm text-gray-600 hover:text-gray-900"
+    >
+      Sign Out
+    </button>
+  );
+}
+```
+
+---
+
+## ✅ Verifikasi
+
+1. Jalankan `bun dev`
+2. Buka `http://localhost:3000/sign-in`
+3. Coba register dengan email/password
+4. Coba login dengan GitHub/Google (jika sudah dikonfigurasi)
+
+---
+
+## 📋 Checklist
+
+- [ ] Better Auth terinstall
+- [ ] Konfigurasi auth di `src/lib/auth.ts`
+- [ ] API route di `src/app/api/auth/[...all]/route.ts`
+- [ ] Environment variables dikonfigurasi
+- [ ] Sign in page dibuat
+- [ ] Sign up page dibuat
+- [ ] Sign out functionality bekerja
+
+---
+
+## ⏭️ Selanjutnya
+
+Lanjut ke materi berikutnya:
+- [04-components-shadcn.mdx](./04-components-shadcn.mdx) - Setup Shadcn UI

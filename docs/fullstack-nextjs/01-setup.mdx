@@ -1,0 +1,229 @@
+# Setup Project Next.js 15
+
+> Inisialisasi project Next.js 15 dengan Bun, TailwindCSS, dan TypeScript
+
+---
+
+## 📋 Langkah-langkah Setup
+
+### 1. Install Next.js dengan Bun
+
+Gunakan `create-next-app` untuk inisialisasi project:
+
+```bash
+# Buat project baru
+bun create next-app@latest my-app --yes
+
+# Atau dengan opsi interaktif
+bun create next-app@latest my-app
+```
+
+Pilih opsi berikut:
+- TypeScript: **Yes**
+- ESLint: **Yes**
+- TailwindCSS: **Yes**
+- `src/` directory: **Yes**
+- App Router: **Yes**
+- Import alias: **@/***
+
+### 2. Install Dependencies Tambahan
+
+```bash
+cd my-app
+
+# Install dependencies untuk project
+bun add lucide-react clsx tailwind-merge
+```
+
+---
+
+## ⚙️ Konfigurasi TailwindCSS
+
+### tailwind.config.ts
+
+File ini sudah di-generate oleh Next.js, tapi pastikan menggunakan setup terbaru:
+
+```typescript
+import type { Config } from "tailwindcss";
+
+const config: Config = {
+  content: [
+    "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
+    "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
+    "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
+  ],
+  theme: {
+    extend: {
+      colors: {
+        background: "hsl(var(--background))",
+        foreground: "hsl(var(--foreground))",
+        card: {
+          DEFAULT: "hsl(var(--card))",
+          foreground: "hsl(var(--card-foreground))",
+        },
+        primary: {
+          DEFAULT: "hsl(var(--primary))",
+          foreground: "hsl(var(--primary-foreground))",
+        },
+        secondary: {
+          DEFAULT: "hsl(var(--secondary))",
+          foreground: "hsl(var(--secondary-foreground))",
+        },
+        muted: {
+          DEFAULT: "hsl(var(--muted))",
+          foreground: "hsl(var(--muted-foreground))",
+        },
+        accent: {
+          DEFAULT: "hsl(var(--accent))",
+          foreground: "hsl(var(--accent-foreground))",
+        },
+        destructive: {
+          DEFAULT: "hsl(var(--destructive))",
+          foreground: "hsl(var(--destructive-foreground))",
+        },
+        border: "hsl(var(--border))",
+        input: "hsl(var(--input))",
+        ring: "hsl(var(--ring))",
+      },
+      borderRadius: {
+        lg: "var(--radius)",
+        md: "calc(var(--radius) - 2px)",
+        sm: "calc(var(--radius) - 4px)",
+      },
+    },
+  },
+  plugins: [],
+};
+
+export default config;
+```
+
+---
+
+## 🎨 Setup CSS Variables
+
+### src/app/globals.css
+
+Setup CSS variables untuk theming:
+
+```css
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
+    
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 222.2 84% 4.9%;
+    
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+```
+
+---
+
+## 📁 Struktur Folder yang Disarankan
+
+```
+my-app/
+├── src/
+│   ├── app/
+│   │   ├── layout.tsx        # Root layout
+│   │   ├── page.tsx          # Home page
+│   │   ├── globals.css       # Global styles
+│   │   └── (routes)/         # Route groups
+│   │       ├── dashboard/
+│   │       └── api/
+│   ├── components/
+│   │   ├── ui/               # Shadcn components
+│   │   └── ...
+│   ├── lib/
+│   │   ├── utils.ts          # Utility functions
+│   │   └── db.ts             # Database client
+│   └── stores/               # Zustand stores
+├── public/
+├── .env.local
+├── drizzle.config.ts
+├── next.config.ts
+├── package.json
+├── tsconfig.json
+└── tailwind.config.ts
+```
+
+---
+
+## 🛠️ Utility Functions
+
+### src/lib/utils.ts
+
+Buat utility untuk className merging:
+
+```typescript
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+```
+
+---
+
+## ✅ Verifikasi Setup
+
+Jalankan development server:
+
+```bash
+bun dev
+```
+
+Buka `http://localhost:3000`. Jika halaman default Next.js muncul, setup berhasil.
+
+---
+
+## 📋 Checklist
+
+- [ ] Project Next.js ter-create dengan `bun create next-app`
+- [ ] TailwindCSS terkonfigurasi dengan benar
+- [ ] CSS variables sudah di-setup
+- [ ] Utility function `cn()` sudah dibuat
+- [ ] Development server berjalan tanpa error
+
+---
+
+## ⏭️ Selanjutnya
+
+Setelah setup berhasil, lanjut ke materi berikutnya:
+- [02-database-drizzle.mdx](./02-database-drizzle.mdx) - Setup Drizzle ORM
