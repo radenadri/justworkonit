@@ -1,0 +1,540 @@
+# Project 3: DeFi Simple Vault (Advanced)
+
+> Protokol tabungan sederhana di mana user bisa deposit ERC-20 untuk mendapatkan imbal hasil (simulasi)
+
+---
+
+## 📋 Overview
+
+**Tingkat:** Advanced  
+**Tujuan:** Belajar interaksi antar kontrak, token allowance, dan kalkulasi BigInt
+
+### Apa yang Akan Dipelajari
+
+- Interaksi antar smart contracts (Vault ↔ ERC-20)
+- Token approval dan allowance pattern
+- Kalkulasi BigInt untuk token amounts
+- Deposit dan withdraw dengan reward
+- TVL (Total Value Locked) calculation
+- Error handling untuk insufficient balance/allowance
+
+---
+
+## 🎯 Fitur Utama
+
+| Fitur | Tipe | Deskripsi |
+|-------|------|-----------|
+| Approve token | Write | Izinkan vault untuk mengambil token |
+| Deposit | Write | Setor token ke vault |
+| Withdraw | Write | Tarik token + reward |
+| TVL Dashboard | Read | Total Value Locked di vault |
+| User Balance | Read | Balance user di vault |
+
+---
+
+## 🏗️ Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    FRONTEND (Next.js)                        │
+│                                                             │
+│   ┌─────────────────┐    ┌─────────────────────────────┐  │
+│   │   Approve UI    │    │     Vault Dashboard          │  │
+│   │  (Transaction1) │    │  ┌─────────────────────────┐│  │
+│   └────────┬────────┘    │  │    TVL Display         ││  │
+│            │              │  │    User Balance        ││  │
+│            └──────────────│  │    Deposit/Withdraw    ││  │
+│                    ┌─────▼──┐└─────────────────────────┘│  │
+│                    │ Deposit │                            │  │
+│                    │(Trans2) │                            │  │
+│                    └─────┬───┘                            │  │
+└──────────────────────────┼──────────────────────────────────┘
+                           │
+         ┌─────────────────┼─────────────────┐
+         ▼                 ▼                 ▼
+┌─────────────────┐ ┌─────────────┐ ┌──────────────────┐
+│   User Wallet   │ │  MockToken  │ │   SimpleVault   │
+│                 │ │  (ERC-20)   │ │    Contract     │
+└─────────────────┘ └─────────────┘ └──────────────────┘
+                                              │
+                                              ▼
+                                    ┌──────────────────┐
+                                    │  Reward Calculation│
+                                    │  (Simulation)     │
+                                    └──────────────────┘
+```
+
+---
+
+## 💻 Smart Contracts
+
+### MockERC20.sol (Token untuk Testing)
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+
+contract MockToken is ERC20 {
+    uint8 private _decimals;
+    
+    constructor(
+        string memory _name,
+        string memory _symbol,
+        uint8 __decimals
+    ) ERC20(_name, _symbol) {
+        _decimals = __decimals;
+    }
+    
+    function decimals() public view override returns (uint8) {
+        return _decimals;
+    }
+    
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
+    
+    function burn(address from, uint256 amount) external {
+        _burn(from, amount);
+    }
+}
+```
+
+### SimpleVault.sol
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+interface IERC20Metadata is IERC20 {
+    function decimals() external view returns (uint8);
+}
+
+contract SimpleVault {
+    // State variables
+    IERC20 public immutable asset;
+    uint8 public immutable assetDecimals;
+    
+    // User deposits
+    mapping(address => uint256) public userBalance;
+    
+    // Total deposits
+    uint256 public totalAssets;
+    
+    // Reward rate (APY simulation) - 5% per year
+    uint256 public constant REWARD_RATE = 500; // 5% in basis points
+    
+    // Events
+    event Deposited(address indexed user, uint256 amount);
+    event Withdrawn(address indexed user, uint256 amount, uint256 reward);
+    
+    constructor(address _asset) {
+        require(_asset != address(0), "Invalid asset address");
+        asset = IERC20(_asset);
+        assetDecimals = IERC20Metadata(_asset).decimals();
+    }
+    
+    // Deposit function
+    function deposit(uint256 _amount) external {
+        require(_amount > 0, "Cannot deposit 0");
+        
+        // Transfer tokens from user to vault
+        require(
+            asset.transferFrom(msg.sender, address(this), _amount),
+            "Transfer failed"
+        );
+        
+        // Update user balance
+        userBalance[msg.sender] += _amount;
+        totalAssets += _amount;
+        
+        emit Deposited(msg.sender, _amount);
+    }
+    
+    // Withdraw function
+    function withdraw(uint256 _amount) external {
+        require(_amount > 0, "Cannot withdraw 0");
+        require(userBalance[msg.sender] >= _amount, "Insufficient balance");
+        
+        // Calculate reward (simplified)
+        uint256 reward = calculateReward(msg.sender, _amount);
+        
+        // Update balances
+        userBalance[msg.sender] -= _amount;
+        totalAssets -= _amount;
+        
+        // Transfer principal + reward
+        require(
+            asset.transfer(msg.sender, _amount + reward),
+            "Transfer failed"
+        );
+        
+        emit Withdrawn(msg.sender, _amount, reward);
+    }
+    
+    // Calculate reward (simplified annual calculation)
+    function calculateReward(address _user, uint256 _amount) public view returns (uint256) {
+        // Simplified: 5% of amount
+        return (_amount * REWARD_RATE) / 10000;
+    }
+    
+    // Get user's total balance with rewards
+    function getUserBalance(address _user) external view returns (uint256) {
+        return userBalance[_user] + calculateReward(_user, userBalance[_user]);
+    }
+}
+```
+
+---
+
+## 🧪 Testing
+
+```solidity
+// test/SimpleVault.t.sol
+pragma solidity ^0.8.24;
+
+import {Test, console} from "forge-std/Test.sol";
+import {MockToken} from "../src/MockToken.sol";
+import {SimpleVault} from "../src/SimpleVault.sol";
+
+contract SimpleVaultTest is Test {
+    MockToken public token;
+    SimpleVault public vault;
+    
+    address public user1 = address(0x1);
+    address public user2 = address(0x2);
+    
+    function setUp() public {
+        token = new MockToken("Mock Token", "MTK", 18);
+        vault = new SimpleVault(address(token));
+        
+        // Give user some tokens
+        token.mint(user1, 1000 * 1e18);
+    }
+    
+    function test_deposit() public {
+        vm.prank(user1);
+        token.approve(address(vault), 100 * 1e18);
+        
+        vm.prank(user1);
+        vault.deposit(100 * 1e18);
+        
+        assertEq(vault.userBalance(user1), 100 * 1e18);
+    }
+    
+    function test_withdraw() public {
+        // Deposit first
+        vm.prank(user1);
+        token.approve(address(vault), 100 * 1e18);
+        
+        vm.prank(user1);
+        vault.deposit(100 * 1e18);
+        
+        // Withdraw
+        vm.prank(user1);
+        vault.withdraw(50 * 1e18);
+        
+        assertEq(vault.userBalance(user1), 50 * 1e18);
+    }
+    
+    function test_rewards() public {
+        vm.prank(user1);
+        token.approve(address(vault), 100 * 1e18);
+        
+        vm.prank(user1);
+        vault.deposit(100 * 1e18);
+        
+        uint256 reward = vault.calculateReward(user1, 100 * 1e18);
+        assertEq(reward, 5 * 1e18); // 5% of 100
+    }
+}
+```
+
+---
+
+## 🌐 Frontend Integration
+
+### Contract ABIs
+
+```typescript
+// abi/token.ts
+export const erc20Abi = [
+  {
+    type: 'function',
+    name: 'approve',
+    inputs: [
+      { name: 'spender', type: 'address' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    outputs: [{ name: '', type: 'bool' }],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    name: 'allowance',
+    inputs: [
+      { name: 'owner', type: 'address' },
+      { name: 'spender', type: 'address' },
+    ],
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'balanceOf',
+    inputs: [{ name: 'account', type: 'address' }],
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'decimals',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint8' }],
+    stateMutability: 'view',
+  },
+] as const
+
+// abi/vault.ts
+export const vaultAbi = [
+  {
+    type: 'function',
+    name: 'deposit',
+    inputs: [{ name: '_amount', type: 'uint256' }],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    name: 'withdraw',
+    inputs: [{ name: '_amount', type: 'uint256' }],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    name: 'userBalance',
+    inputs: [{ name: '', type: 'address' }],
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'totalAssets',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'calculateReward',
+    inputs: [
+      { name: '_user', type: 'address' },
+      { name: '_amount', type: 'uint256' },
+    ],
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'getUserBalance',
+    inputs: [{ name: '_user', type: 'address' }],
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+] as const
+```
+
+### Hooks
+
+#### Approve Token
+
+```typescript
+// hooks/useApproveToken.ts
+import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
+import { erc20Abi } from '@/abi/token'
+
+const TOKEN_ADDRESS = '0x...'
+const VAULT_ADDRESS = '0x...'
+
+export function useApproveToken() {
+  const { data: hash, writeContract, isPending } = useWriteContract()
+  
+  const { isLoading: isConfirming, isSuccess } = 
+    useWaitForTransactionReceipt({ hash })
+  
+  function approve(amount: bigint) {
+    writeContract({
+      address: TOKEN_ADDRESS,
+      abi: erc20Abi,
+      functionName: 'approve',
+      args: [VAULT_ADDRESS, amount],
+    })
+  }
+  
+  return { approve, hash, isPending, isConfirming, isSuccess }
+}
+```
+
+#### Deposit
+
+```typescript
+// hooks/useDeposit.ts
+import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
+import { vaultAbi } from '@/abi/vault'
+
+const VAULT_ADDRESS = '0x...'
+
+export function useDeposit() {
+  const { data: hash, writeContract, isPending } = useWriteContract()
+  
+  const { isLoading: isConfirming, isSuccess } = 
+    useWaitForTransactionReceipt({ hash })
+  
+  function deposit(amount: bigint) {
+    writeContract({
+      address: VAULT_ADDRESS,
+      abi: vaultAbi,
+      functionName: 'deposit',
+      args: [amount],
+    })
+  }
+  
+  return { deposit, hash, isPending, isConfirming, isSuccess }
+}
+```
+
+### BigInt Formatting
+
+```typescript
+// lib/format.ts
+import { formatUnits, parseUnits } from 'viem'
+
+export function formatTokenAmount(
+  amount: bigint, 
+  decimals: number = 18
+): string {
+  return formatUnits(amount, decimals)
+}
+
+export function parseTokenAmount(
+  amount: string, 
+  decimals: number = 18
+): bigint {
+  return parseUnits(amount, decimals)
+}
+
+export function formatAPY(rate: bigint): string {
+  return `${Number(rate) / 100}%`
+}
+```
+
+---
+
+## 🎨 UI Components
+
+### Vault Dashboard
+
+```typescript
+// components/VaultDashboard.tsx
+'use client'
+
+import { useAccount } from 'wagmi'
+import { useReadContract } from 'wagmi'
+import { erc20Abi } from '@/abi/token'
+import { vaultAbi } from '@/abi/vault'
+import { formatTokenAmount, formatAPY } from '@/lib/format'
+import { DepositForm } from './DepositForm'
+import { WithdrawForm } from './WithdrawForm'
+
+const TOKEN_ADDRESS = '0x...'
+const VAULT_ADDRESS = '0x...'
+const REWARD_RATE = 500n // 5%
+
+export function VaultDashboard() {
+  const { address } = useAccount()
+  
+  // Fetch TVL
+  const { data: tvl } = useReadContract({
+    address: VAULT_ADDRESS,
+    abi: vaultAbi,
+    functionName: 'totalAssets',
+  })
+  
+  // Fetch user balance
+  const { data: userBalance } = useReadContract({
+    address: VAULT_ADDRESS,
+    abi: vaultAbi,
+    functionName: 'userBalance',
+    args: address ? [address] : undefined,
+  })
+  
+  // Fetch token balance
+  const { data: tokenBalance } = useReadContract({
+    address: TOKEN_ADDRESS,
+    abi: erc20Abi,
+    functionName: 'balanceOf',
+    args: address ? [address] : undefined,
+  })
+  
+  return (
+    <div className="vault-dashboard">
+      <h1>DeFi Vault</h1>
+      <p>APY: {formatAPY(REWARD_RATE)}</p>
+      
+      stats">
+        <div className="<div className="stat">
+          <h3>Total Value Locked</h3>
+          <p>{tvl ? formatTokenAmount(tvl) : '0'} USDC</p>
+        </div>
+        
+        <div className="stat">
+          <h3>Your Balance</h3>
+          <p>{userBalance ? formatTokenAmount(userBalance) : '0'} USDC</p>
+        </div>
+        
+        <div className="stat">
+          <h3>Wallet Balance</h3>
+          <p>{tokenBalance ? formatTokenAmount(tokenBalance) : '0'} USDC</p>
+        </div>
+      </div>
+      
+      <div className="actions">
+        <DepositForm />
+        <WithdrawForm />
+      </div>
+    </div>
+  )
+}
+```
+
+---
+
+## ✅ Checklist
+
+- [ ] Setup Foundry project
+- [ ] Coding MockERC20.sol (token untuk testing)
+- [ ] Coding SimpleVault.sol dengan deposit/withdraw
+- [ ] Implementasi reward calculation
+- [ ] Write unit tests
+- [ ] Deploy contracts ke local/Anvil
+- [ ] Setup Next.js frontend
+- [ ] Konfigurasi wagmi/viem
+- [ ] Implementasi UI Approve Token (Transaction 1)
+- [ ] Implementasi UI Deposit ke Vault (Transaction 2)
+- [ ] Konversi BigInt ke readable format dengan formatUnits
+- [ ] Fetch real-time Balance & Total Assets
+- [ ] Implementasi error handling (insufficient balance/allowance)
+- [ ] Implementasi Withdraw functionality
+
+---
+
+## 🔗 Langkah Berikutnya
+
+Setelah menyelesaikan project ini, lanjut ke:
+
+- **Project 4:** [DAO Voting System](./04-dao-voting.md) - Sistem governance kompleks

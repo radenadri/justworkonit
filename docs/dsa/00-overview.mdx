@@ -1,0 +1,128 @@
+# 00. Gambaran umum
+
+## Tujuan
+- Paham cara memakai seri ini dari awal sampai selesai (tanpa bingung harus mulai dari mana).
+- Terbiasa berpikir seperti pemecah masalah: definisikan input-output, cek edge case, lalu pilih strategi dan struktur data.
+- Membangun kebiasaan latihan kecil tapi konsisten sampai konsep DSA terasa natural di JavaScript.
+
+## Konsep Inti
+
+Cara pakai tiap bab (urutannya sama di semua bab):
+
+1) Baca **Tujuan** (1 menit) dan bayangkan: "setelah selesai, aku bisa apa?"
+2) Pahami **Konsep Inti** (10-15 menit). Jangan hafal; fokus pada ide dan kapan dipakai.
+3) Jalankan **Contoh Cepat** (5 menit). Ketik ulang kodenya, lalu ubah sedikit inputnya.
+4) Baca **Studi Kasus** (5 menit). Latih kemampuan menerjemahkan masalah sehari-hari ke model DSA.
+5) Kerjakan **Latihan** (15-30 menit). Tulis solusi versi kamu, lalu bandingkan dengan petunjuk.
+
+Aturan praktis yang perlu kamu ulang terus:
+
+- **Mulai dari input-output.** Tulis: apa masukannya, apa keluarannya, formatnya, dan contoh kecil.
+- **Tulis batasan dan edge case dulu.** Kosong? duplikat? nilai negatif? data tidak terurut? ukuran besar?
+- **Cari strategi sebelum ngoding.** Dua pointer? sliding window? stack? hash map? rekursi?
+- **Hitung kompleksitas.** Minimal sebutkan perkiraan waktu dan memori: O(n), O(n log n), O(n^2), dll.
+- **Uji dengan 3 jenis contoh.** Kasus normal, kasus kecil/ekstrem, dan kasus yang "menjebak".
+
+Daftar isi:
+
+1. [01. Dasar JavaScript untuk DSA](/js-dsa/01-js-fundamentals-for-dsa)
+2. [02. Big-O dan trade-off](/js-dsa/02-big-o-and-tradeoffs)
+3. [03. Array dan string](/js-dsa/03-arrays-and-strings)
+4. [04. Hash map dan set](/js-dsa/04-hash-map-and-set)
+5. [05. Stack dan queue](/js-dsa/05-stack-and-queue)
+6. [06. Dasar rekursi dan backtracking](/js-dsa/06-recursion-and-backtracking-basics)
+7. [07. Dasar sorting dan searching](/js-dsa/07-sorting-searching-basics)
+8. [08. Pola algoritma 1](/js-dsa/08-algorithm-patterns-1)
+9. [09. Dasar tree](/js-dsa/09-trees-basics)
+10. [10. Dasar graph](/js-dsa/10-graphs-basics)
+11. [11. Pengantar dynamic programming](/js-dsa/11-dp-intro)
+12. [12. Template source code (JavaScript)](/js-dsa/12-code-templates)
+
+Saran ritme latihan (kecil tapi konsisten):
+
+- 20-40 menit/hari, 4-6 hari/minggu lebih bagus daripada 3 jam sekali seminggu.
+- Tiap latihan: mulai dari solusi paling sederhana dulu, lalu optimalkan kalau perlu.
+- Setelah 24-48 jam, ulang 1-2 soal lama tanpa lihat catatan (spaced repetition).
+
+## Contoh Cepat
+```js
+// Contoh pola berpikir yang dipakai di seluruh seri.
+// Masalah: cek apakah semua karakter dalam string unik.
+// Input: string s
+// Output: boolean
+// Edge case: string kosong => true
+
+function semuaKarakterUnik(s) {
+  if (typeof s !== "string") return false;
+
+  const seen = new Set();
+  for (const ch of s) {
+    if (seen.has(ch)) return false;
+    seen.add(ch);
+  }
+  return true;
+}
+
+console.log(semuaKarakterUnik("abcd")); // true
+console.log(semuaKarakterUnik("abca")); // false
+console.log(semuaKarakterUnik("")); // true
+
+// Kompleksitas:
+// - Waktu: O(n) karena tiap karakter dicek sekali
+// - Memori: O(n) untuk menyimpan karakter yang sudah terlihat
+```
+
+## Studi Kasus (Sehari-hari)
+
+Kamu punya daftar username yang baru didaftarkan hari ini. Kamu ingin menolak pendaftaran jika username sudah pernah dipakai sebelumnya.
+
+Terjemahan ke DSA:
+
+- **Input**: array string `usernamesBaru` + set/daftar `usernamesTerdaftar`.
+- **Output**: daftar username yang valid / atau boolean "boleh daftar?".
+- **Strategi**: gunakan **`Set`** untuk cek/pencarian cepat (cek duplikat) daripada scan array berulang.
+- **Edge case**: kapitalisasi ("Ari" vs "ari"), spasi, string kosong, duplikat dalam batch yang sama.
+
+Intinya: begitu kamu butuh "pernah lihat atau belum?" atau "berapa kali muncul?", pikirkan **Set/Map** dulu.
+
+## Latihan
+1. Buat fungsi `pairSum(nums, target)` yang mengembalikan `true/false` apakah ada dua angka yang jumlahnya `target`.
+
+   <details>
+     <summary>Petunjuk</summary>
+
+     - Saat membaca angka `x`, cek apakah `target - x` sudah pernah terlihat.
+     - Gunakan `Set` atau `Map` agar ceknya O(1) rata-rata.
+   </details>
+
+2. Buat fungsi `isBalanced(s)` untuk mengecek apakah tanda kurung `()[]{}` seimbang.
+
+   <details>
+     <summary>Petunjuk</summary>
+
+     - Gunakan stack; push saat ketemu buka, pop saat ketemu tutup.
+     - Buat mapping pasangan tutup -> buka.
+   </details>
+
+3. Buat fungsi `binarySearch(arr, x)` untuk array angka yang sudah terurut naik. Kembalikan index atau `-1`.
+
+   <details>
+     <summary>Petunjuk</summary>
+
+     - Pakai dua pointer `lo` dan `hi`, lalu hitung `mid`.
+     - Hati-hati update batas agar loop tidak infinite.
+   </details>
+
+4. Buat fungsi `freqMap(words)` yang menerima array string dan mengembalikan `Map` (atau object) frekuensi kemunculan.
+
+   <details>
+     <summary>Petunjuk</summary>
+
+     - Jika kata belum ada di map, mulai dari 1.
+     - Kalau sudah ada, tambah 1.
+   </details>
+
+## Ringkasan
+- Seri ini dibuat supaya kamu bisa belajar DSA dengan pola yang konsisten: konsep -> contoh -> studi kasus -> latihan.
+- Biasakan selalu menulis input-output, edge case, dan kompleksitas (waktu + memori).
+- Latihan kecil tapi rutin jauh lebih efektif daripada maraton sesekali.

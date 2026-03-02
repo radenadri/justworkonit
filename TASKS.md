@@ -94,7 +94,7 @@
 
 - [x] 10.1 Create src/components/code-block.tsx — `<pre>` wrapper with copy button (monochrome, no border-radius)
 - [x] 10.2 Register `pre: CodeBlock` in MDX component map
-- [ ] 10.3 Verify copy button appears on hover, copies text to clipboard, shows "Copied!" feedback
+- [x] 10.3 Verify copy button appears on hover, copies text to clipboard, shows "Copied!" feedback
 
 ## Phase 11: Interactive Checkboxes ✅
 
@@ -103,14 +103,14 @@
 - [x] 11.3 Create src/components/progress-context.tsx — provides docKey + checkbox index counter
 - [x] 11.4 Override `li` component in MDX map — detect GFM task list items, render CheckboxTracker
 - [x] 11.5 Wrap MdxRenderer with ProgressProvider in doc-page.tsx
-- [ ] 11.6 Verify checkboxes are clickable, state persists across page refreshes and navigation
+- [x] 11.6 Verify checkboxes are clickable, state persists across page refreshes and navigation
 
 ## Phase 12: Mermaid Diagrams ✅
 
 - [x] 12.1 Install mermaid (`bun add mermaid`)
 - [x] 12.2 Create src/components/mermaid-diagram.tsx — lazy-loaded mermaid renderer with monochrome theme
 - [x] 12.3 Create code router in MDX component map — detect `language-mermaid`, route to MermaidDiagram vs normal code
-- [ ] 12.4 Verify mermaid diagrams render with monochrome colors (black/white/gray only)
+- [x] 12.4 Verify mermaid diagrams render with monochrome colors (black/white/gray only)
 
 ## Phase 13: MDX Cleanup & Verification ✅
 
@@ -120,7 +120,47 @@
 - [x] 13.4 Update README.md — reflect MDX stack, new features (copy, checkboxes, mermaid)
 - [x] 13.5 Create VERCEL.md — static MDX deployment guide
 - [x] 13.6 Verify production build passes with all features (3,771 modules → 94 chunks, 17.37s, zero errors)
-- [ ] 13.7 Visual testing — verify all 4 features work in browser
+- [x] 13.7 Visual testing — verify all 4 features work in browser
+
+## Phase 14: JS + DSA Learning Path (Docs) ⏳
+
+> Add new docs collection: `docs/js-dsa/` (beginner JS + data structures & algorithms). One small real-life study case per chapter; exercises are hint-only (no full solutions). All content in Indonesian, written as `.mdx`.
+
+- [x] 14.1 Create skeleton files for `docs/js-dsa/` (00..11)
+- [x] 14.2 Write `00-overview.mdx` (course guide + ToC)
+- [x] 14.3 Write `01-js-fundamentals-for-dsa.mdx`
+- [x] 14.4 Write `02-big-o-and-tradeoffs.mdx`
+- [x] 14.5 Write `03-arrays-and-strings.mdx`
+- [x] 14.6 Write `04-hash-map-and-set.mdx`
+- [x] 14.7 Write `05-stack-and-queue.mdx`
+- [x] 14.8 Write `06-recursion-and-backtracking-basics.mdx`
+- [x] 14.9 Write `07-sorting-searching-basics.mdx`
+- [x] 14.10 Write `08-algorithm-patterns-1.mdx`
+- [x] 14.11 Write `09-trees-basics.mdx`
+- [x] 14.12 Write `10-graphs-basics.mdx`
+- [x] 14.13 Write `11-dp-intro.mdx`
+- [x] 14.14 Final pass: consistency + navigation + build verification
+- [ ] 14.15 Commit docs (if git is allowed in this environment)
+
+## Phase 15: JS-DSA Refactor (Templates + Mermaid) ⏳
+
+> Refactor `docs/js-dsa/` by adding a central chapter `12-code-templates.mdx` for reusable JS templates, and adding 1 Mermaid visualization + template links in chapters 01..11 (no new `##` headings).
+
+- [x] 15.1 Create `docs/js-dsa/12-code-templates.mdx`
+- [x] 15.2 Update `docs/js-dsa/00-overview.mdx` ToC to include chapter 12
+- [x] 15.3 Add `### Template terkait` + `### Visualisasi (Mermaid)` to chapter 01
+- [x] 15.4 Add `### Template terkait` + `### Visualisasi (Mermaid)` to chapter 02
+- [x] 15.5 Add `### Template terkait` + `### Visualisasi (Mermaid)` to chapter 03
+- [x] 15.6 Add `### Template terkait` + `### Visualisasi (Mermaid)` to chapter 04
+- [x] 15.7 Add `### Template terkait` + `### Visualisasi (Mermaid)` to chapter 05
+- [x] 15.8 Add `### Template terkait` + `### Visualisasi (Mermaid)` to chapter 06
+- [x] 15.9 Add `### Template terkait` + `### Visualisasi (Mermaid)` to chapter 07
+- [x] 15.10 Add `### Template terkait` + `### Visualisasi (Mermaid)` to chapter 08
+- [x] 15.11 Add `### Template terkait` + `### Visualisasi (Mermaid)` to chapter 09
+- [x] 15.12 Add `### Template terkait` + `### Visualisasi (Mermaid)` to chapter 10
+- [x] 15.13 Add `### Template terkait` + `### Visualisasi (Mermaid)` to chapter 11
+- [x] 15.14 Final pass: consistency + build verification
+- [ ] 15.15 Commit docs (if git is allowed)
 
 ---
 

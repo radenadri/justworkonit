@@ -1,0 +1,311 @@
+# 05. Stack dan queue
+
+## Tujuan
+- Memahami pola LIFO (stack) dan FIFO (queue) serta penggunaan umumnya.
+
+Setelah bab ini, kamu bisa:
+- Menjelaskan perbedaan stack (LIFO) vs queue (FIFO) dan kapan dipakai.
+- Mengimplementasikan stack dengan `push/pop` dan queue yang efisien tanpa `shift()`.
+- Mengidentifikasi use-case umum: validasi kurung, undo/redo, BFS, scheduling.
+
+## Konsep Inti
+
+### Template terkait
+- Stack validasi kurung: `/js-dsa/12-code-templates#tpl-stack-validasi-kurung`
+- Queue head-index: `/js-dsa/12-code-templates#tpl-queue-head-index`
+- BFS shortest path (unweighted): `/js-dsa/12-code-templates#tpl-bfs-shortest-path`
+
+### Visualisasi (Mermaid)
+
+```mermaid
+flowchart TD
+  subgraph STACK[Stack (LIFO)]
+    S1[push] --> S2[pop];
+    S2 --> S3[elemen terakhir keluar dulu];
+  end
+
+  subgraph QUEUE[Queue (FIFO) - head index]
+    Q1[enqueue: push ke belakang] --> Q2[dequeue: ambil queue[head]];
+    Q2 --> Q3[head++];
+    Q3 --> Q4{Perlu kompaksi?};
+    Q4 -- Kadang --> Q5[splice(0, head) ; head = 0];
+  end
+```
+
+### Apa itu stack (LIFO)
+Stack adalah struktur data dengan aturan **LIFO (Last In, First Out)**: elemen terakhir yang masuk, keluar pertama.
+
+Bayangkan tumpukan piring:
+- Piring yang terakhir kamu taruh di atas, itu juga yang pertama kamu ambil.
+
+Kapan pakai stack?
+- **Validasi tanda kurung** (misalnya `()[]{}`).
+- **Undo/redo** (editor teks, gambar, IDE).
+- **Backtracking/DFS** (akan dibahas di bab lain).
+- Teaser: **monotonic stack** untuk “elemen berikutnya yang lebih besar/kecil” di array.
+
+### Apa itu queue (FIFO)
+Queue adalah struktur data dengan aturan **FIFO (First In, First Out)**: elemen pertama yang masuk, keluar pertama.
+
+Bayangkan antrian:
+- Orang yang datang duluan, dilayani duluan.
+
+Kapan pakai queue?
+- **BFS (Breadth-First Search)** di graph/tree.
+- **Scheduling/antrean tugas** (print queue, job queue).
+- Simulasi layanan (kasir, helpdesk, tiket).
+
+### Implementasi stack di JavaScript (array `push/pop`)
+Di JavaScript, stack paling sederhana bisa memakai array:
+
+```js
+const stack = [];
+stack.push("A"); // masuk
+stack.push("B");
+console.log(stack.pop()); // keluar terakhir: "B"
+console.log(stack.pop()); // "A"
+```
+
+Catatan kompleksitas:
+- `push()` dan `pop()` di array umumnya **O(1) amortized**.
+
+### Implementasi queue di JavaScript: hindari `shift()` untuk data besar
+Sering orang membuat queue dengan array lalu `push()` untuk enqueue dan `shift()` untuk dequeue.
+
+Masalahnya:
+- `shift()` (dan `unshift()`) butuh menggeser elemen lain, jadi **O(n)**.
+- Kalau antrian besar, ini jadi lambat.
+
+Solusi beginner-friendly: **head-index pattern**.
+- Simpan array, simpan indeks `head` yang menunjuk elemen terdepan.
+- Dequeue cukup `head++` (tidak menggeser array).
+- Sesekali lakukan “kompaksi” agar memori tidak membengkak.
+
+```js
+function createQueue() {
+  const data = [];
+  let head = 0;
+
+  return {
+    enqueue(value) {
+      data.push(value);
+    },
+    dequeue() {
+      if (head >= data.length) return undefined;
+      const value = data[head];
+      head += 1;
+
+      // Gotcha: head makin besar -> array menumpuk slot kosong.
+      // Kompaksi sesekali (heuristik sederhana).
+      if (head > 50 && head * 2 > data.length) {
+        data.splice(0, head);
+        head = 0;
+      }
+
+      return value;
+    },
+    peek() {
+      return head < data.length ? data[head] : undefined;
+    },
+    size() {
+      return data.length - head;
+    },
+    isEmpty() {
+      return this.size() === 0;
+    },
+  };
+}
+```
+
+Kompleksitas:
+- `enqueue` (`push`) **O(1) amortized**.
+- `dequeue` dengan `head++` **O(1) amortized**.
+- Kompaksi `splice` itu **O(n)**, tapi dilakukan jarang sehingga rata-rata tetap bagus.
+
+### Use-case cepat + gotchas
+- **Validasi kurung**: stack untuk menyimpan kurung buka dan mencocokkan saat ketemu kurung tutup.
+- **Undo/redo**: sering memakai *dua stack* (undo stack dan redo stack).
+- **BFS**: queue untuk memproses node per level.
+- **Scheduling**: queue untuk memproses pekerjaan sesuai urutan datang.
+
+Gotchas yang sering kejadian:
+- **Queue pakai `shift()`**: terasa mudah, tapi performa jeblok pada data besar.
+- **Head-index queue tanpa kompaksi**: `head` naik terus, memori tampak “tidak turun” karena array menyimpan slot lama.
+- **Mencampur operasi**: queue yang kadang `push/pop` kadang `enqueue/dequeue` bisa membuat urutan jadi tidak jelas (FIFO berubah jadi “campur aduk”).
+
+## Contoh Cepat
+Catatan: di contoh cepat ini queue dinamai `createSimpleQueue()` supaya tidak bentrok dengan implementasi `createQueue()` yang lebih lengkap di bagian sebelumnya.
+```js
+// Stack: reverse string (LIFO)
+function reverseWithStack(s) {
+  const stack = [];
+  for (const ch of s) stack.push(ch);
+
+  let out = "";
+  while (stack.length > 0) out += stack.pop();
+  return out;
+}
+
+console.log(reverseWithStack("belajar")); // rajaleb
+
+// Queue: head-index pattern (FIFO)
+function createSimpleQueue() {
+  const data = [];
+  let head = 0;
+
+  return {
+    enqueue(value) {
+      data.push(value);
+    },
+    dequeue() {
+      if (head >= data.length) return undefined;
+      const value = data[head];
+      head += 1;
+
+      // Kompaksi sederhana supaya memori tidak tumbuh terus.
+      if (head > 50 && head * 2 > data.length) {
+        data.splice(0, head);
+        head = 0;
+      }
+
+      return value;
+    },
+    peek() {
+      return head < data.length ? data[head] : undefined;
+    },
+    size() {
+      return data.length - head;
+    },
+    isEmpty() {
+      return this.size() === 0;
+    },
+  };
+}
+
+const q = createSimpleQueue();
+q.enqueue("A");
+q.enqueue("B");
+q.enqueue("C");
+console.log(q.peek()); // A
+console.log(q.dequeue()); // A
+console.log(q.dequeue()); // B
+console.log(q.size()); // 1
+```
+
+## Studi Kasus (Sehari-hari)
+
+### Validasi kurung + tunjukkan posisi error
+
+**Pernyataan masalah**
+Kamu membuat fitur input formula/teks (misalnya di form). Kamu ingin mengecek apakah tanda kurung `()[]{}` sudah seimbang. Jika tidak seimbang, tampilkan **posisi karakter** yang menyebabkan error agar mudah di-highlight.
+
+**Contoh input**
+`"a*(b+c]"`
+
+**Output yang diharapkan**
+Objek hasil:
+- `valid: false`
+- `index: 6` (karena `]` tidak cocok dengan `(`)
+- `message` menjelaskan masalah
+
+### Ide/pendekatan
+- Lewati string dari kiri ke kanan.
+- Jika bertemu kurung buka `(` `[` `{` → simpan ke stack sebagai pasangan: `{ ch, index }`.
+- Jika bertemu kurung tutup `)` `]` `}` → ambil elemen terakhir dari stack:
+  - Jika stack kosong → ada kurung tutup tanpa pasangan (error di indeks sekarang).
+  - Jika ada tapi tidak cocok jenisnya → mismatch (error di indeks sekarang).
+- Setelah selesai membaca string:
+  - Jika stack masih berisi → ada kurung buka yang belum ditutup (error di indeks kurung buka terakhir).
+
+```js
+function validateBracketsWithIndex(input) {
+  const opens = new Set(["(", "[", "{"]);
+  const match = {
+    ")": "(",
+    "]": "[",
+    "}": "{",
+  };
+
+  const stack = []; // { ch: string, index: number }
+
+  for (let i = 0; i < input.length; i += 1) {
+    const ch = input[i];
+    if (opens.has(ch)) {
+      stack.push({ ch, index: i });
+      continue;
+    }
+
+    if (Object.hasOwn(match, ch)) {
+      if (stack.length === 0) {
+        return {
+          valid: false,
+          index: i,
+          message: `Kurung tutup '${ch}' tidak punya pasangan.`,
+        };
+      }
+
+      const top = stack.pop();
+      const expectedOpen = match[ch];
+      if (top.ch !== expectedOpen) {
+        return {
+          valid: false,
+          index: i,
+          message: `Kurung tutup '${ch}' tidak cocok. Diharapkan '${expectedOpen}', tetapi puncak stack berisi '${top.ch}' (dibuka di indeks ${top.index}).`,
+        };
+      }
+    }
+  }
+
+  if (stack.length > 0) {
+    const last = stack[stack.length - 1];
+    return {
+      valid: false,
+      index: last.index,
+      message: `Kurung buka '${last.ch}' belum ditutup.`,
+    };
+  }
+
+  return { valid: true, index: -1, message: "OK" };
+}
+
+console.log(validateBracketsWithIndex("a*(b+c]"));
+console.log(validateBracketsWithIndex("(a+b)*[c]"));
+```
+
+Kompleksitas waktu: O(n)
+
+Kompleksitas ruang: O(n)
+
+## Latihan
+1. Implementasikan fungsi `isBalancedBrackets(s)` yang mendukung `()[]{}`.
+   <details>
+     <summary>Petunjuk</summary>
+     <p>Gunakan stack. Saat bertemu kurung tutup, cek apakah <code>pop()</code> cocok dengan pasangan yang diharapkan.</p>
+   </details>
+2. Buat `minRemoveToMakeValid(s)` untuk tanda kurung `()` saja: hapus minimum karakter agar valid.
+   <details>
+     <summary>Petunjuk</summary>
+     <p>Simpan indeks <code>(</code> di stack. Saat ketemu <code>)</code> dan stack kosong, tandai indeks itu untuk dihapus.</p>
+   </details>
+3. Implementasikan queue efisien `createQueue()` (head-index) dengan operasi: `enqueue`, `dequeue`, `peek`, `size`.
+   <details>
+     <summary>Petunjuk</summary>
+     <p>Hindari <code>shift()</code>. Gunakan array + <code>head</code> dan lakukan kompaksi sesekali.</p>
+   </details>
+4. Simulasikan antrian layanan: input berupa daftar kedatangan `[nama, waktuDatang]` dan `durasiLayanan` tetap. Keluarkan urutan dilayani dan waktu selesai.
+   <details>
+     <summary>Petunjuk</summary>
+     <p>Gunakan queue untuk orang yang sudah datang. Simpan <code>currentTime</code>, proses satu per satu.</p>
+   </details>
+5. Teaser monotonic stack: untuk array `nums`, cari `nextGreaterElement` untuk tiap indeks (elemen berikutnya yang lebih besar di kanan).
+   <details>
+     <summary>Petunjuk</summary>
+     <p>Simpan indeks pada stack yang nilainya menurun. Saat ketemu angka lebih besar, pop sampai kondisi terpenuhi.</p>
+   </details>
+
+## Ringkasan
+- Stack = **LIFO**; cocok untuk “pasangan/jejak” (kurung, undo/redo, DFS/backtracking).
+- Queue = **FIFO**; cocok untuk antrian proses (BFS, scheduling, simulasi layanan).
+- Di JS: stack paling mudah dengan array `push/pop` (O(1) amortized).
+- Queue: hindari `shift/unshift` pada data besar (O(n)); pakai **head-index queue** (O(1) amortized dequeue).
+- Gotcha head-index: lakukan kompaksi sesekali agar memori tidak tumbuh terus.

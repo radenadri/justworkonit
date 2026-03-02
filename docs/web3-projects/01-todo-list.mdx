@@ -1,0 +1,627 @@
+# Project 1: CRUD Todo List (Beginner)
+
+> Aplikasi manajemen tugas yang berinteraksi langsung dengan smart contract
+
+---
+
+## 📋 Overview
+
+**Tingkat:** Beginner  
+**Tujuan:** Memahami read/write operations dan event listening di wagmi
+
+### Apa yang Akan Dipelajari
+
+- Menulis data ke smart contract (write operations)
+- Membaca data dari smart contract (read operations)
+- Mendengarkan event untuk real-time updates
+- Integrasi Next.js dengan wagmi/viem
+- Handling loading states dan error states
+
+---
+
+## 🎯 Fitur Utama
+
+| Fitur | Tipe | Deskripsi |
+|-------|------|-----------|
+| Tambah tugas | Write | Membuat task baru di smart contract |
+| Lihat daftar tugas | Read | Mengambil semua task dari blockchain |
+| Update status | Write | Toggle status selesai/tidak selesai |
+| Real-time update | Event | Update UI saat ada perubahan data |
+
+---
+
+## 🏗️ Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    FRONTEND (Next.js)                        │
+│                                                             │
+│   ┌─────────────┐    ┌─────────────┐    ┌─────────────┐  │
+│   │ AddTodoForm │    │ TodoList    │    │ TodoItem    │  │
+│   └──────┬──────┘    └──────┬──────┘    └──────┬──────┘  │
+│          │                  │                  │          │
+│          └──────────────────┼──────────────────┘          │
+│                             │                               │
+│                    ┌────────▼────────┐                     │
+│                    │   wagmi/viem    │                     │
+│                    └────────┬────────┘                     │
+└─────────────────────────────┼───────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│              SMART CONTRACT (Ethereum)                       │
+│                                                             │
+│   ┌─────────────────────────────────────────────────────┐   │
+│   │                     Todo.sol                        │   │
+│   │  - tasks mapping (id → Task)                       │   │
+│   │  - TaskCreated event                              │   │
+│   │  - TaskToggled event                              │   │
+│   └─────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 🔧 Tech Stack
+
+| Komponen | Nama | Versi |
+|----------|------|-------|
+| Contract | Solidity | ^0.8.24 |
+| Framework | Foundry | v1.4.4 |
+| Library | OpenZeppelin | ^5.5.0 |
+| Frontend | Next.js | 15.x |
+| Web3 | wagmi | ^2.x |
+| Client | viem | ^2.x |
+| Query | TanStack Query | ^5.x |
+
+---
+
+## 📦 Project Setup
+
+### Step 1: Setup Foundry Project
+
+```bash
+# Initialize Foundry project
+forge init web3-todo-list
+cd web3-todo-list
+
+# Install OpenZeppelin contracts
+forge install OpenZeppelin/openzeppelin-contracts --no-commit
+```
+
+### Step 2: Setup Next.js Frontend
+
+```bash
+# Di root project (bukan di web3-todo-list)
+npx create-next-app@latest web3-todo-list-frontend --typescript --tailwind --eslint
+
+cd web3-todo-list-frontend
+
+# Install wagmi dan dependencies
+npm install wagmi viem @tanstack/react-query
+```
+
+---
+
+## 💻 Smart Contract (Todo.sol)
+
+### Contract Structure
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+contract TodoList {
+    struct Task {
+        uint256 id;
+        string content;
+        bool completed;
+        address owner;
+        uint256 createdAt;
+    }
+
+    // Events
+    event TaskCreated(uint256 indexed id, string content, address indexed owner);
+    event TaskToggled(uint256 indexed id, bool completed, address indexed owner);
+
+    // State
+    mapping(uint256 => Task) public tasks;
+    uint256 public nextTaskId;
+    mapping(address => uint256[]) public userTaskIds;
+
+    // Functions
+    function createTask(string calldata _content) external;
+    function toggleTask(uint256 _taskId) external;
+    function getUserTasks(address _user) external view returns(Task[] memory);
+}
+```
+
+### Implementasi Lengkap
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+contract TodoList {
+    struct Task {
+        uint256 id;
+        string content;
+        bool completed;
+        address owner;
+        uint256 createdAt;
+    }
+
+    event TaskCreated(uint256 indexed id, string content, address indexed owner);
+    event TaskToggled(uint256 indexed id, bool completed, address indexed owner);
+
+    mapping(uint256 => Task) public tasks;
+    uint256 public nextTaskId;
+    mapping(address => uint256[]) public userTaskIds;
+
+    function createTask(string calldata _content) external {
+        require(bytes(_content).length > 0, "Content cannot be empty");
+        
+        tasks[nextTaskId] = Task({
+            id: nextTaskId,
+            content: _content,
+            completed: false,
+            owner: msg.sender,
+            createdAt: block.timestamp
+        });
+        
+        userTaskIds[msg.sender].push(nextTaskId);
+        
+        emit TaskCreated(nextTaskId, _content, msg.sender);
+        nextTaskId++;
+    }
+
+    function toggleTask(uint256 _taskId) external {
+        Task storage task = tasks[_taskId];
+        require(task.owner == msg.sender, "Not the task owner");
+        
+        task.completed = !task.completed;
+        
+        emit TaskToggled(_taskId, task.completed, msg.sender);
+    }
+
+    function getUserTasks(address _user) external view returns(Task[] memory) {
+        uint256[] storage ids = userTaskIds[_user];
+        Task[] memory result = new Task[](ids.length);
+        
+        for (uint256 i = 0; i < ids.length; i++) {
+            result[i] = tasks[ids[i]];
+        }
+        
+        return result;
+    }
+}
+```
+
+---
+
+## 🧪 Testing (Foundry)
+
+### Unit Test
+
+```solidity
+// test/TodoList.t.sol
+pragma solidity ^0.8.24;
+
+import {Test, console} from "forge-std/Test.sol";
+import {TodoList} from "../src/TodoList.sol";
+
+contract TodoListTest is Test {
+    TodoList public todoList;
+    address public user1 = address(0x1);
+    address public user2 = address(0x2);
+
+    function setUp() public {
+        todoList = new TodoList();
+    }
+
+    function test_createTask() public {
+        vm.prank(user1);
+        todoList.createTask("Learn Solidity");
+        
+        (uint256 id, string memory content, bool completed, address owner, uint256 createdAt) = 
+            todoList.tasks(0);
+        
+        assertEq(id, 0);
+        assertEq(content, "Learn Solidity");
+        assertEq(completed, false);
+        assertEq(owner, user1);
+    }
+
+    function test_toggleTask() public {
+        vm.prank(user1);
+        todoList.createTask("Learn Solidity");
+        
+        vm.prank(user1);
+        todoList.toggleTask(0);
+        
+        (, , bool completed, , ) = todoList.tasks(0);
+        assertEq(completed, true);
+    }
+
+    function test_getUserTasks() public {
+        vm.prank(user1);
+        todoList.createTask("Task 1");
+        
+        vm.prank(user1);
+        todoList.createTask("Task 2");
+        
+        vm.prank(user2);
+        todoList.createTask("Task 3");
+        
+        TodoList.Task[] memory user1Tasks = todoList.getUserTasks(user1);
+        assertEq(user1Tasks.length, 2);
+    }
+}
+```
+
+### Run Tests
+
+```bash
+forge test
+```
+
+---
+
+## 🌐 Frontend Integration
+
+### Configuration
+
+#### 1. Setup wagmi Config
+
+```typescript
+// config/wagmi.ts
+import { http, createConfig } from 'wagmi'
+import { mainnet, sepolia } from 'wagmi/chains'
+import { injected } from 'wagmi/connectors'
+
+export const config = createConfig({
+  chains: [mainnet, sepolia],
+  connectors: [injected()],
+  transports: {
+    [mainnet.id]: http(),
+    [sepolia.id]: http(),
+  },
+})
+```
+
+#### 2. Setup Provider
+
+```typescript
+// app/providers.tsx
+'use client'
+
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { WagmiProvider } from 'wagmi'
+import { config } from '@/config/wagmi'
+
+const queryClient = new QueryClient()
+
+export function Providers({ children }: { children: React.ReactNode }) {
+  return (
+    <WagmiProvider config={config}>
+      <QueryClientProvider client={queryClient}>
+        {children}
+      </QueryClientProvider>
+    </WagmiProvider>
+  )
+}
+```
+
+### Contract ABI
+
+```typescript
+// abi/todo.ts
+export const todoListAbi = [
+  {
+    type: 'constructor',
+    inputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    name: 'tasks',
+    inputs: [{ name: '_taskId', type: 'uint256' }],
+    outputs: [
+      { name: 'id', type: 'uint256' },
+      { name: 'content', type: 'string' },
+      { name: 'completed', type: 'bool' },
+      { name: 'owner', type: 'address' },
+      { name: 'createdAt', type: 'uint256' },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'createTask',
+    inputs: [{ name: '_content', type: 'string' }],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    name: 'toggleTask',
+    inputs: [{ name: '_taskId', type: 'uint256' }],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    name: 'getUserTasks',
+    inputs: [{ name: '_user', type: 'address' }],
+    outputs: [
+      {
+        components: [
+          { name: 'id', type: 'uint256' },
+          { name: 'content', type: 'string' },
+          { name: 'completed', type: 'bool' },
+          { name: 'owner', type: 'address' },
+          { name: 'createdAt', type: 'uint256' },
+        ],
+        type: 'tuple[]',
+      },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'event',
+    name: 'TaskCreated',
+    inputs: [
+      { name: 'id', type: 'uint256', indexed: true },
+      { name: 'content', type: 'string', indexed: false },
+      { name: 'owner', type: 'address', indexed: true },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'TaskToggled',
+    inputs: [
+      { name: 'id', type: 'uint256', indexed: true },
+      { name: 'completed', type: 'bool', indexed: false },
+      { name: 'owner', type: 'address', indexed: true },
+    ],
+  },
+] as const
+```
+
+### Hooks
+
+#### Read Tasks
+
+```typescript
+// hooks/useTasks.ts
+import { useReadContract } from 'wagmi'
+import { todoListAbi } from '@/abi/todo'
+
+const CONTRACT_ADDRESS = '0x...' // Deploy contract dan isi alamatnya
+
+export function useTasks(address?: string) {
+  return useReadContract({
+    address: CONTRACT_ADDRESS,
+    abi: todoListAbi,
+    functionName: 'getUserTasks',
+    args: address ? [address as `0x${string}`] : undefined,
+  })
+}
+```
+
+#### Create Task
+
+```typescript
+// hooks/useCreateTask.ts
+import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
+import { todoListAbi } from '@/abi/todo'
+
+const CONTRACT_ADDRESS = '0x...'
+
+export function useCreateTask() {
+  const { data: hash, writeContract, isPending } = useWriteContract()
+  
+  const { isLoading: isConfirming, isSuccess } = 
+    useWaitForTransactionReceipt({ hash })
+  
+  function createTask(content: string) {
+    writeContract({
+      address: CONTRACT_ADDRESS,
+      abi: todoListAbi,
+      functionName: 'createTask',
+      args: [content],
+    })
+  }
+  
+  return {
+    createTask,
+    hash,
+    isPending,
+    isConfirming,
+    isSuccess,
+  }
+}
+```
+
+#### Toggle Task
+
+```typescript
+// hooks/useToggleTask.ts
+import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
+import { todoListAbi } from '@/abi/todo'
+
+const CONTRACT_ADDRESS = '0x...'
+
+export function useToggleTask() {
+  const { data: hash, writeContract } = useWriteContract()
+  
+  const { isLoading: isConfirming } = 
+    useWaitForTransactionReceipt({ hash })
+  
+  function toggleTask(taskId: bigint) {
+    writeContract({
+      address: CONTRACT_ADDRESS,
+      abi: todoListAbi,
+      functionName: 'toggleTask',
+      args: [taskId],
+    })
+  }
+  
+  return {
+    toggleTask,
+    hash,
+    isConfirming,
+  }
+}
+```
+
+---
+
+## 🎨 UI Components
+
+### TodoList Component
+
+```typescript
+// components/TodoList.tsx
+'use client'
+
+import { useAccount } from 'wagmi'
+import { useTasks } from '@/hooks/useTasks'
+import { TodoItem } from './TodoItem'
+import { AddTodoForm } from './AddTodoForm'
+
+export function TodoList() {
+  const { address } = useAccount()
+  const { data: tasks, isLoading, refetch } = useTasks(address)
+  
+  if (isLoading) {
+    return <div>Loading tasks...</div>
+  }
+  
+  if (!address) {
+    return <div>Please connect your wallet</div>
+  }
+  
+  return (
+    <div>
+      <AddTodoForm onSuccess={() => refetch()} />
+      
+      <div>
+        {tasks?.map((task) => (
+          <TodoItem 
+            key={task.id} 
+            task={task} 
+            onToggle={() => refetch()} 
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+```
+
+### AddTodoForm Component
+
+```typescript
+// components/AddTodoForm.tsx
+'use client'
+
+import { useState } from 'react'
+import { useCreateTask } from '@/hooks/useCreateTask'
+
+export function AddTodoForm({ onSuccess }: { onSuccess: () => void }) {
+  const [content, setContent] = useState('')
+  const { createTask, isPending, isConfirming, isSuccess } = useCreateTask()
+  
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!content.trim()) return
+    
+    createTask(content)
+    
+    if (isSuccess) {
+      setContent('')
+      onSuccess()
+    }
+  }
+  
+  return (
+    <form onSubmit={handleSubmit}>
+      <input
+        type="text"
+        value={content}
+        onChange={(e) => setContent(e.target.value)}
+        placeholder="What needs to be done?"
+        disabled={isPending || isConfirming}
+      />
+      <button type="submit" disabled={isPending || isConfirming}>
+        {isPending ? 'Sign...' : isConfirming ? 'Confirming...' : 'Add Task'}
+      </button>
+    </form>
+  )
+}
+```
+
+### TodoItem Component
+
+```typescript
+// components/TodoItem.tsx
+'use client'
+
+import { useToggleTask } from '@/hooks/useToggleTask'
+
+interface Task {
+  id: bigint
+  content: string
+  completed: boolean
+  owner: string
+  createdAt: bigint
+}
+
+export function TodoItem({ task, onToggle }: { task: Task; onToggle: () => void }) {
+  const { toggleTask, isConfirming } = useToggleTask()
+  
+  const handleToggle = () => {
+    toggleTask(task.id)
+    onToggle()
+  }
+  
+  return (
+    <div className={task.completed ? 'completed' : ''}>
+      <input
+        type="checkbox"
+        checked={task.completed}
+        onChange={handleToggle}
+        disabled={isConfirming}
+      />
+      <span>{task.content}</span>
+    </div>
+  )
+}
+```
+
+---
+
+## ✅ Checklist
+
+- [ ] Setup Foundry project
+- [ ] Install OpenZeppelin contracts
+- [ ] Coding Todo.sol smart contract
+- [ ] Write unit tests di Foundry
+- [ ] Deploy ke Anvil (local) atau Sepolia (testnet)
+- [ ] Setup Next.js dengan wagmi/viem
+- [ ] Konfigurasi chains dan providers
+- [ ] Integrasi useReadContract untuk fetch tasks
+- [ ] Integrasi useWriteContract untuk add task
+- [ ] Integrasi useWriteContract untuk toggle task
+- [ ] Implementasi loading states
+- [ ] Implementasi success feedback
+- [ ] Testing lengkap (happy path + edge cases)
+
+---
+
+## 🔗 Langkah Berikutnya
+
+Setelah menyelesaikan project ini, lanjut ke:
+
+- **Project 2:** [NFT Gated Gallery](./02-nft-gallery.md) - Belajar ERC-721 dan access gating

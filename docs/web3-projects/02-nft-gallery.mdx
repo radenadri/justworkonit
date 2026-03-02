@@ -1,0 +1,584 @@
+# Project 2: NFT Gated Gallery (Intermediate)
+
+> Website galeri seni digital yang hanya bisa diakses oleh pemegang NFT tertentu
+
+---
+
+## 📋 Overview
+
+**Tingkat:** Intermediate  
+**Tujuan:** Belajar standar ERC-721 dan logic access gating di frontend
+
+### Apa yang Akan Dipelajari
+
+- Standar ERC-721 untuk NFT
+- URI Storage untuk metadata
+- Access gating berbasis ownership
+- Conditional rendering di frontend
+- Minting NFT dari frontend
+- Integrasi IPFS untuk metadata
+
+---
+
+## 🎯 Fitur Utama
+
+| Fitur | Tipe | Deskripsi |
+|-------|------|-----------|
+| Minting NFT | Write | Membuat NFT baru |
+| Pengecekan ownership | Read | Cek apakah user memiliki NFT |
+| Holder-only content | Gating | Tampilkan konten eksklusif untuk holder |
+| Display metadata | Read | Tampilkan gambar dan nama NFT |
+
+---
+
+## 🏗️ Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    FRONTEND (Next.js)                        │
+│                                                             │
+│   ┌─────────────────┐    ┌─────────────────────────────┐ │
+│   │ Connect Wallet  │    │     NFT Gallery             │ │
+│   └────────┬────────┘    │  ┌─────────────────────────┐│ │
+│            │              │  │    Public Content       ││ │
+│            └──────────────│  └─────────────────────────┘│ │
+│                           │  ┌─────────────────────────┐│ │
+│                    ┌──────▼──┤   Holder Only Content   ││ │
+│                    │ Gating  │  (Require NFT balance) ││ │
+│                    └──────┬──┘  └─────────────────────────┘│ │
+└───────────────────────────┼─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│              SMART CONTRACT (Ethereum)                       │
+│                                                             │
+│   ┌─────────────────────────────────────────────────────┐  │
+│   │                  NFTGallery.sol                      │  │
+│   │  - ERC721URIStorage                                 │  │
+│   │  - mint() function                                 │  │
+│   │  - tokenURI() untuk metadata                       │  │
+│   └─────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      IPFS (Pinata)                          │
+│                                                             │
+│   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐    │
+│   │ metadata/1  │  │ metadata/2  │  │ metadata/3  │    │
+│   │    .json   │  │    .json   │  │    .json   │    │
+│   └─────────────┘  └─────────────┘  └─────────────┘    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 🔧 Tech Stack
+
+| Komponen | Nama | Versi |
+|----------|------|-------|
+| Contract | ERC721URIStorage | OpenZeppelin ^5.5.0 |
+| Framework | Foundry | v1.4.4 |
+| IPFS | Pinata | Cloud |
+| Frontend | Next.js | 15.x |
+| Wallet | RainbowKit | ^2.2.10 |
+| Web3 | wagmi | ^2.x |
+| Client | viem | ^2.x |
+
+---
+
+## 💻 Smart Contract (NFTGallery.sol)
+
+### Contract Structure
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import {ERC721URIStorage} from "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+
+contract NFTGallery is ERC721URIStorage, Ownable {
+    uint256 public nextTokenId;
+    uint256 public constant MAX_SUPPLY = 100;
+    
+    // Events
+    event NFTMinted(address indexed to, uint256 indexed tokenId, string tokenURI);
+    
+    constructor() ERC721("NFTGallery", "NFTG") Ownable(msg.sender) {}
+    
+    function mint(string calldata _tokenURI) external;
+    function tokenURI(uint256 _tokenId) external view override returns (string memory);
+}
+```
+
+### Implementasi Lengkap
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import {ERC721URIStorage} from "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+
+contract NFTGallery is ERC721URIStorage, Ownable {
+    uint256 public nextTokenId;
+    uint256 public constant MAX_SUPPLY = 100;
+    
+    // Optional: whitelist untuk minting
+    mapping(address => bool) public whitelistedMinters;
+    uint256 public mintPrice = 0.01 ether;
+    
+    event NFTMinted(address indexed to, uint256 indexed tokenId, string tokenURI);
+    event WhitelistUpdated(address indexed account, bool status);
+    
+    constructor() ERC721("NFTGallery", "NFTG") Ownable(msg.sender) {}
+    
+    function mint(string calldata _tokenURI) external payable {
+        require(msg.value >= mintPrice, "Insufficient payment");
+        require(nextTokenId < MAX_SUPPLY, "Max supply reached");
+        
+        uint256 tokenId = nextTokenId;
+        _safeMint(msg.sender, tokenId);
+        _setTokenURI(tokenId, _tokenURI);
+        
+        emit NFTMinted(msg.sender, tokenId, _tokenURI);
+        nextTokenId++;
+    }
+    
+    function addToWhitelist(address[] calldata _accounts) external onlyOwner {
+        for (uint256 i = 0; i < _accounts.length; i++) {
+            whitelistedMinters[_accounts[i]] = true;
+        }
+    }
+    
+    function removeFromWhitelist(address[] calldata _accounts) external onlyOwner {
+        for (uint256 i = 0; i < _accounts.length; i++) {
+            whitelistedMinters[_accounts[i]] = false;
+        }
+    }
+    
+    function whitelistMint(string calldata _tokenURI) external {
+        require(whitelistedMinters[msg.sender], "Not whitelisted");
+        require(nextTokenId < MAX_SUPPLY, "Max supply reached");
+        
+        uint256 tokenId = nextTokenId;
+        _safeMint(msg.sender, tokenId);
+        _setTokenURI(tokenId, _tokenURI);
+        
+        emit NFTMinted(msg.sender, tokenId, _tokenURI);
+        nextTokenId++;
+    }
+    
+    function withdraw() external onlyOwner {
+        payable(owner()).transfer(address(this).balance);
+    }
+}
+```
+
+---
+
+## 🧪 Testing
+
+### Unit Test
+
+```solidity
+// test/NFTGallery.t.sol
+pragma solidity ^0.8.24;
+
+import {Test, console} from "forge-std/Test.sol";
+import {NFTGallery} from "../src/NFTGallery.sol";
+
+contract NFTGalleryTest is Test {
+    NFTGallery public gallery;
+    address public user1 = address(0x1);
+    address public user2 = address(0x2);
+    
+    string constant TOKEN_URI = "ipfs://QmXxx...";
+    
+    function setUp() public {
+        gallery = new NFTGallery();
+    }
+    
+    function test_mintNFT() public {
+        vm.deal(user1, 1 ether);
+        
+        vm.prank(user1);
+        gallery.mint{value: 0.01 ether}(TOKEN_URI);
+        
+        assertEq(gallery.ownerOf(0), user1);
+        assertEq(gallery.tokenURI(0), TOKEN_URI);
+    }
+    
+    function test_balanceOf() public {
+        vm.deal(user1, 1 ether);
+        
+        vm.prank(user1);
+        gallery.mint{value: 0.01 ether}(TOKEN_URI);
+        
+        assertEq(gallery.balanceOf(user1), 1);
+    }
+    
+    function test_whitelistMint() public {
+        address[] memory accounts = new address[](1);
+        accounts[0] = user1;
+        
+        gallery.addToWhitelist(accounts);
+        
+        vm.prank(user1);
+        gallery.whitelistMint(TOKEN_URI);
+        
+        assertEq(gallery.balanceOf(user1), 1);
+    }
+}
+```
+
+---
+
+## 🌐 Frontend Integration
+
+### Configuration
+
+#### Setup RainbowKit
+
+```bash
+npm install @rainbow-me/rainbowkit wagmi viem @tanstack/react-query
+```
+
+```typescript
+// config/wagmi.ts
+import { getDefaultConfig } from '@rainbow-me/rainbowkit'
+import { mainnet, sepolia } from 'wagmi/chains'
+
+export const config = getDefaultConfig({
+  appName: 'NFT Gallery',
+  projectId: 'YOUR_WALLET_CONNECT_PROJECT_ID',
+  chains: [mainnet, sepolia],
+  ssr: true,
+})
+```
+
+### Hooks
+
+#### Check NFT Balance
+
+```typescript
+// hooks/useNFTOwnership.ts
+import { useReadContract } from 'wagmi'
+import { nftGalleryAbi } from '@/abi/nft-gallery'
+
+const CONTRACT_ADDRESS = '0x...'
+
+export function useNFTOwnership(address?: string) {
+  const { data: balance, ...rest } = useReadContract({
+    address: CONTRACT_ADDRESS,
+    abi: nftGalleryAbi,
+    functionName: 'balanceOf',
+    args: address ? [address as `0x${string}`] : undefined,
+  })
+  
+  return {
+    balance: balance ? Number(balance) : 0,
+    isHolder: balance ? Number(balance) > 0 : false,
+    ...rest,
+  }
+}
+```
+
+#### Mint NFT
+
+```typescript
+// hooks/useMintNFT.ts
+import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
+import { nftGalleryAbi } from '@/abi/nft-gallery'
+
+const CONTRACT_ADDRESS = '0x...'
+
+export function useMintNFT() {
+  const { data: hash, writeContract, isPending } = useWriteContract()
+  
+  const { isLoading: isConfirming, isSuccess } = 
+    useWaitForTransactionReceipt({ hash })
+  
+  function mint(tokenURI: string) {
+    writeContract({
+      address: CONTRACT_ADDRESS,
+      abi: nftGalleryAbi,
+      functionName: 'mint',
+      args: [tokenURI],
+      value: BigInt(10000000000000000), // 0.01 ETH
+    })
+  }
+  
+  return {
+    mint,
+    hash,
+    isPending,
+    isConfirming,
+    isSuccess,
+  }
+}
+```
+
+### NFT ABI
+
+```typescript
+// abi/nft-gallery.ts
+export const nftGalleryAbi = [
+  {
+    type: 'constructor',
+    inputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    name: 'balanceOf',
+    inputs: [{ name: 'account', type: 'address' }],
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'mint',
+    inputs: [{ name: '_tokenURI', type: 'string' }],
+    outputs: [],
+    stateMutability: 'payable',
+  },
+  {
+    type: 'function',
+    name: 'tokenURI',
+    inputs: [{ name: '_tokenId', type: 'uint256' }],
+    outputs: [{ name: '', type: 'string' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'ownerOf',
+    inputs: [{ name: 'tokenId', type: 'uint256' }],
+    outputs: [{ name: '', type: 'address' }],
+    stateMutability: 'view',
+  },
+] as const
+```
+
+---
+
+## 🎨 UI Components
+
+### Gallery Page with Gating
+
+```typescript
+// app/page.tsx
+'use client'
+
+import { useAccount } from 'wagmi'
+import { ConnectButton } from '@rainbow-me/rainbowkit'
+import { useNFTOwnership } from '@/hooks/useNFTOwnership'
+import { PublicGallery } from '@/components/PublicGallery'
+import { ExclusiveGallery } from '@/components/ExclusiveGallery'
+import { MintForm } from '@/components/MintForm'
+
+export default function GalleryPage() {
+  const { address, isConnected } = useAccount()
+  const { isHolder, balance } = useNFTOwnership(address)
+  
+  return (
+    <main>
+      <header>
+        <h1>NFT Gallery</h1>
+        <ConnectButton />
+      </header>
+      
+      {isConnected ? (
+        <div>
+          <p>Wallet: {address}</p>
+          <p>NFT Balance: {balance}</p>
+          
+          {isHolder ? (
+            <ExclusiveGallery />
+          ) : (
+            <div>
+              <PublicGallery />
+              <div className="locked-content">
+                <h2>🔒 Holder Only Content</h2>
+                <p>Mint an NFT to access exclusive artwork!</p>
+                <MintForm />
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div>
+          <h2>Welcome to NFT Gallery</h2>
+          <p>Connect your wallet to view exclusive content</p>
+          <ConnectButton />
+        </div>
+      )}
+    </main>
+  )
+}
+```
+
+### NFT Card Component
+
+```typescript
+// components/NFTCard.tsx
+'use client'
+
+import { useState, useEffect } from 'react'
+import { useReadContract } from 'wagmi'
+import { nftGalleryAbi } from '@/abi/nft-gallery'
+
+interface NFT {
+  id: number
+  owner: string
+  tokenURI: string
+}
+
+interface NFTCardProps {
+  tokenId: number
+  contractAddress: string
+}
+
+interface Metadata {
+  name: string
+  description: string
+  image: string
+}
+
+export function NFTCard({ tokenId, contractAddress }: NFTCardProps) {
+  const { data: tokenURI } = useReadContract({
+    address: contractAddress,
+    abi: nftGalleryAbi,
+    functionName: 'tokenURI',
+    args: [BigInt(tokenId)],
+  })
+  
+  const [metadata, setMetadata] = useState<Metadata | null>(null)
+  const [loading, setLoading] = useState(true)
+  
+  useEffect(() => {
+    if (!tokenURI) return
+    
+    async function fetchMetadata() {
+      try {
+        // Convert ipfs:// to https://gateway
+        const url = tokenURI.replace('ipfs://', 'https://ipfs.io/ipfs/')
+        const response = await fetch(url)
+        const data = await response.json()
+        setMetadata(data)
+      } catch (error) {
+        console.error('Failed to fetch metadata:', error)
+      } finally {
+        setLoading(false)
+      }
+    }
+    
+    fetchMetadata()
+  }, [tokenURI])
+  
+  if (loading) return <div>Loading...</div>
+  
+  return (
+    <div className="nft-card">
+      <img src={metadata?.image} alt={metadata?.name} />
+      <h3>{metadata?.name}</h3>
+      <p>{metadata?.description}</p>
+    </div>
+  )
+}
+```
+
+---
+
+## 📦 IPFS Setup (Metadata)
+
+### Metadata JSON Structure
+
+```json
+{
+  "name": "Digital Art #1",
+  "description": "A unique piece of digital art",
+  "image": "ipfs://QmXxxxxx/image.png",
+  "attributes": [
+    {
+      "trait_type": "Artist",
+      "value": "John Doe"
+    },
+    {
+      "trait_type": "Style",
+      "value": "Abstract"
+    }
+  ]
+}
+```
+
+### Upload ke Pinata
+
+```typescript
+// lib/ipfs.ts
+import axios from 'axios'
+
+const PINATA_API_KEY = process.env.NEXT_PUBLIC_PINATA_API_KEY
+const PINATA_SECRET_KEY = process.env.NEXT_PUBLIC_PINATA_SECRET_KEY
+
+export async function uploadToIPFS(file: File): Promise<string> {
+  const formData = new FormData()
+  formData.append('file', file)
+  
+  const res = await axios.post(
+    'https://api.pinata.cloud/pinning/pinFileToIPFS',
+    formData,
+    {
+      headers: {
+        pinata_api_key: PINATA_API_KEY,
+        pinata_secret_api_key: PINATA_SECRET_KEY,
+      },
+    }
+  )
+  
+  return `ipfs://${res.data.IpfsHash}`
+}
+
+export async function uploadMetadata(metadata: object): Promise<string> {
+  const res = await axios.post(
+    'https://api.pinata.cloud/pinning/pinJSONToIPFS',
+    metadata,
+    {
+      headers: {
+        pinata_api_key: PINATA_API_KEY,
+        pinata_secret_api_key: PINATA_SECRET_KEY,
+      },
+    }
+  )
+  
+  return `ipfs://${res.data.IpfsHash}`
+}
+```
+
+---
+
+## ✅ Checklist
+
+- [ ] Setup Foundry project dengan OpenZeppelin
+- [ ] Coding ERC721URIStorage smart contract
+- [ ] Implementasi fungsi mint dengan payment
+- [ ] Implementasi whitelist functionality
+- [ ] Write unit tests
+- [ ] Deploy ke testnet
+- [ ] Setup Next.js dengan RainbowKit
+- [ ] Konfigurasi WalletConnect project ID
+- [ ] Integrasi useReadContract untuk balanceOf
+- [ ] Implementasi conditional rendering untuk gated content
+- [ ] Setup Pinata account untuk IPFS
+- [ ] Implementasi upload metadata function
+- [ ] Display NFT metadata (image, name, description)
+- [ ] Implementasi minting UI dari frontend
+
+---
+
+## 🔗 Langkah Berikutnya
+
+Setelah menyelesaikan project ini, lanjut ke:
+
+- **Project 3:** [DeFi Simple Vault](./03-defi-vault.md) - Belajar interaksi antar kontrak dan BigInt

@@ -1,0 +1,201 @@
+# 02. Big-O dan trade-off
+
+## Tujuan
+- Paham apa itu Big-O dan cara membaca notasinya.
+- Bisa membedakan kompleksitas waktu vs ruang (memori).
+- Tahu trade-off umum di JavaScript (kecepatan, memori, keterbacaan).
+
+## Konsep Inti
+
+Big-O adalah cara *mengukur laju pertumbuhan biaya* sebuah algoritma ketika ukuran input membesar. Big-O bukan "berapa milidetik", tapi "naik seberapa cepat".
+
+### Template terkait
+- Dedupe stabil dengan `Set`: `/js-dsa/12-code-templates#tpl-set-dedupe-stable`
+- Frequency count dengan `Map`: `/js-dsa/12-code-templates#tpl-map-frequency-count`
+- Binary search (exact): `/js-dsa/12-code-templates#tpl-binary-search-exact`
+
+### Visualisasi (Mermaid)
+
+```mermaid
+flowchart TD
+  A[Input array] --> B{Butuh cek duplikat?};
+  B -- Ya --> C[Solusi lambat: nested loop];
+  C --> C1[Bandingkan semua pasangan];
+  C1 --> T1["Time: O(n^2)"];
+
+  B -- Ya --> D[Solusi cepat: Set];
+  D --> D1[Iterasi sekali, cek seen.has(x)];
+  D1 --> T2["Time: O(n) rata-rata"];
+  D1 --> S2["Space: O(n)"];
+
+  B -- Tidak --> E[Gunakan solusi paling jelas];
+```
+
+- `n` (ukuran input): jumlah elemen array, panjang string, banyak node, banyak data yang diproses, dst. Pastikan definisinya jelas.
+- **Kompleksitas waktu (time complexity)**: perkiraan pertumbuhan jumlah operasi (loop, akses, perbandingan) saat `n` naik.
+- **Kompleksitas ruang (space complexity)**: perkiraan pertumbuhan memori tambahan yang dipakai (struktur data baru, salinan array, cache, dll).
+
+### Kasus terburuk vs rata-rata
+- **Worst-case**: skenario terburuk (mis. item yang dicari tidak ada, atau ada di posisi paling akhir). Biasanya ini yang dipakai untuk jaga-jaga.
+- **Average-case**: rata-rata (butuh asumsi distribusi data). Kadang lebih realistis, tapi harus jelas asumsi datanya.
+
+### Kompleksitas yang sering muncul
+- `O(1)`: konstan, tidak bergantung pada `n` (mis. akses `arr[i]`, `map.get(key)` pada umumnya).
+- `O(log n)`: naik pelan, biasanya karena "membagi dua" (binary search pada data terurut).
+- `O(n)`: linear, sekali lewat (single pass).
+- `O(n log n)`: sering muncul di sorting berbasis perbandingan (mis. merge sort), atau pola "bagi dan taklukkan".
+- `O(n^2)`: kuadrat, biasanya dua loop bersarang terhadap input yang sama.
+
+### Biaya tersembunyi yang sering bikin keliru di JavaScript
+Kadang kita merasa "cuma satu baris", padahal di balik layar ada loop.
+
+- `arr.slice(...)`: membuat array baru (salin elemen) -> biasanya `O(k)` untuk panjang potongan.
+- `arr.shift()` / `arr.unshift(...)`: menggeser indeks semua elemen -> biasanya `O(n)`.
+- `arr.includes(x)` / `arr.indexOf(x)`: mencari linear -> `O(n)`.
+- `str + something` di dalam loop: string immutable; concatenation berulang bisa jadi mahal (sering efektifnya mendekati `O(n^2)` untuk total panjang). Lebih aman pakai array `parts.push(...)` lalu `parts.join('')`.
+- `Array.prototype.sort(...)`: rata-rata `O(n log n)`, tapi detail implementasi dan comparator dapat memengaruhi konstanta.
+
+### Trade-off yang perlu disadari
+- **Waktu vs memori**: pakai `Set/Map` bisa menurunkan waktu (mis. dari `O(n^2)` ke `O(n)`) tapi memakai memori tambahan `O(n)`.
+- **Keterbacaan vs performa**: solusi paling cepat belum tentu paling mudah dipahami. Untuk banyak kasus, versi yang jelas + cukup cepat lebih baik.
+- **Konstanta itu nyata**: dua solusi sama-sama `O(n)` bisa punya performa berbeda besar. Big-O membantu memilih kelas pertumbuhan, bukan mengukur mikro-optimasi.
+
+## Contoh Cepat
+```js
+// Jalankan file ini dengan `node`, `bun`, atau di console browser.
+
+function printFirst(arr) {
+  console.log("first:", arr[0]); // O(1)
+}
+
+function sumAll(arr) {
+  let sum = 0;
+  for (const x of arr) sum += x; // O(n)
+  console.log("sum:", sum);
+}
+
+function hasDuplicateSlow(arr) {
+  // Dua loop bersarang -> O(n^2)
+  for (let i = 0; i < arr.length; i++) {
+    for (let j = i + 1; j < arr.length; j++) {
+      if (arr[i] === arr[j]) return true;
+    }
+  }
+  return false;
+}
+
+function hasDuplicateFast(arr) {
+  // Pakai Set -> O(n) time, O(n) space
+  const seen = new Set();
+  for (const x of arr) {
+    if (seen.has(x)) return true;
+    seen.add(x);
+  }
+  return false;
+}
+
+const data = [1, 2, 3, 2, 5];
+printFirst(data);
+sumAll(data);
+console.log("dup slow:", hasDuplicateSlow(data), "(estimasi: O(n^2))");
+console.log("dup fast:", hasDuplicateFast(data), "(estimasi: O(n))");
+```
+
+## Studi Kasus (Sehari-hari)
+
+**Masalah:** Kamu punya daftar SKU barang dari scanner gudang. Scanner kadang membaca SKU yang sama berkali-kali. Kamu butuh daftar SKU unik **tanpa mengubah urutan kemunculan pertama**.
+
+**Sample input:**
+```js
+const skus = ["A12", "B07", "A12", "C99", "B07", "D10"];
+```
+
+**Expected output:**
+```js
+["A12", "B07", "C99", "D10"]
+```
+
+### Pendekatan dan trade-off
+- Pendekatan sederhana: untuk tiap elemen, cek apakah sudah ada di hasil dengan `includes`. Ini mudah, tapi `includes` itu `O(n)` dan dipanggil `n` kali -> total bisa `O(n^2)`.
+- Pendekatan lebih cepat: pakai `Set` untuk cek "pernah lihat" dalam `O(1) rata-rata`. Ini membuat waktu turun ke `O(n)` tetapi butuh memori tambahan `O(n)`.
+
+### Implementasi (JavaScript)
+```js
+function dedupePreserveOrder(items) {
+  const seen = new Set();
+  const result = [];
+
+  for (const x of items) {
+    if (!seen.has(x)) {
+      seen.add(x);
+      result.push(x);
+    }
+  }
+
+  return result;
+}
+
+const skus = ["A12", "B07", "A12", "C99", "B07", "D10"];
+console.log(dedupePreserveOrder(skus));
+// -> [ 'A12', 'B07', 'C99', 'D10' ]
+```
+
+Alternatif singkat untuk data primitive: `Array.from(new Set(items))` juga menjaga urutan kemunculan pertama.
+Catatan: jika item berupa object, `Set` membedakan berdasarkan referensi, jadi biasanya kamu butuh key string (mis. `sku`) atau `Map`.
+
+Kompleksitas waktu: O(n)
+
+Kompleksitas ruang: O(n)
+
+## Latihan
+1. Kamu punya array `n` angka, lalu melakukan `arr.includes(x)` di dalam loop `for` yang berjalan `n` kali. Estimasikan time complexity.
+
+   <details>
+     <summary>Petunjuk</summary>
+
+     - `includes` pada array biasanya mencari linear `O(n)`.
+     - Kalau operasi `O(n)` dipanggil `n` kali, pikirkan perkalian.
+   </details>
+
+2. Bandingkan dua cara cek duplikasi: (a) dua loop bersarang, (b) pakai `Set`. Sebutkan trade-off utama.
+
+   <details>
+     <summary>Petunjuk</summary>
+
+     - Fokus pada time vs space.
+     - Ingat bahwa `Set` butuh memori tambahan.
+   </details>
+
+3. Kamu ingin membangun string dari karakter yang diproses satu per satu di loop. Mana yang lebih aman dari sisi performa: `s += part` atau `parts.push(part)` lalu `parts.join('')`? Jelaskan alasannya secara Big-O.
+
+   <details>
+     <summary>Petunjuk</summary>
+
+     - String immutable: concatenation berulang bisa menyalin ulang isi.
+     - Total biaya bisa membesar lebih cepat dari yang terlihat.
+   </details>
+
+4. Diberi array terurut naik dan target `x`. Pilih `binary search` atau `linear scan`? Jelaskan kapan masing-masing masuk akal.
+
+   <details>
+     <summary>Petunjuk</summary>
+
+     - `binary search` biasanya `O(log n)` tapi butuh data terurut.
+     - Untuk `n` kecil, konstanta dan kesederhanaan bisa lebih penting.
+   </details>
+
+5. Kamu membuat cache `Map` untuk hasil komputasi mahal. Apa dampaknya pada time complexity rata-rata dan space complexity?
+
+   <details>
+     <summary>Petunjuk</summary>
+
+      - Cache bisa membuat cek/pencarian cepat (rata-rata mendekati `O(1)`).
+     - Tapi item cache tersimpan di memori; pikirkan pertumbuhan jumlah entry.
+   </details>
+
+## Ringkasan
+- Big-O mengukur pertumbuhan biaya saat ukuran input (`n`) membesar.
+- Bedakan time vs space; sering ada trade-off: lebih cepat = lebih banyak memori.
+- Umumnya dipakai worst-case; average-case perlu asumsi.
+- Waspadai biaya tersembunyi JS seperti `shift`, `slice`, `includes`, dan concatenation string di loop.
+- Pilih solusi yang tepat untuk konteks: cukup cepat, cukup jelas, dan tidak boros memori tanpa alasan.

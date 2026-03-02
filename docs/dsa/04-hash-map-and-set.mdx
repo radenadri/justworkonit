@@ -1,0 +1,368 @@
+# 04. Hash map dan set
+
+## Tujuan
+- Memahami kapan memakai `Map`/`Object` vs `Set` untuk cek/pencarian cepat.
+- Mengenali tipe problem yang biasanya paling cocok diselesaikan dengan hash-based structure.
+- Menghindari gotcha umum saat menghitung frekuensi / dedupe data di JavaScript.
+
+## Konsep Inti
+
+Pada banyak problem DSA, kamu butuh cara untuk:
+- Mengecek "apakah item ini sudah pernah muncul?" (membership)
+- Menghapus duplikasi (dedupe)
+- Menghitung frekuensi kemunculan (frequency counting)
+- Mengelompokkan data berdasarkan suatu kunci (grouping)
+
+Kalau pakai array saja, cek membership biasanya perlu `includes`/`indexOf` yang cenderung `O(n)`. Dengan `Map`/`Set`, operasi `get/set/has` umumnya **`O(1)` rata-rata**, jadi solusi sering turun dari `O(n^2)` menjadi `O(n)`.
+
+### Template terkait
+- Dedupe stabil: `/js-dsa/12-code-templates#tpl-set-dedupe-stable`
+- Frequency count (Map): `/js-dsa/12-code-templates#tpl-map-frequency-count`
+- Group by (Map): `/js-dsa/12-code-templates#tpl-map-group-by`
+
+### Visualisasi (Mermaid)
+
+```mermaid
+flowchart TD
+  A[Item masuk satu per satu] --> B[Normalisasi key (trim/lowercase)];
+  B --> C{Mode};
+  C -- Dedupe --> D[Set.has(key)?];
+  D -- belum --> D1[Set.add(key) + push output];
+  D -- sudah --> D2[skip];
+  C -- Frekuensi --> E[count = (map.get(key) ?? 0) + 1];
+  E --> E1[map.set(key, count)];
+  C -- Grouping --> F[if !map.has(key) set []];
+  F --> F1[map.get(key).push(item)];
+```
+
+### Tipe problem yang sering muncul
+
+**1) Membership check (cek ada/tidak)**
+- Contoh: "apakah `x` pernah muncul?", "apakah SKU ini termasuk whitelist?"
+- Struktur: `Set` (paling langsung), atau `Map` kalau butuh value tambahan.
+
+**2) Dedupe (hapus duplikat)**
+- Contoh: daftar email unik, daftar tag unik.
+- Struktur: `Set` (ingat: urutan kemunculan pertama tetap dijaga pada iterasi `Set`).
+
+**3) Frequency counting (hitung frekuensi)**
+- Contoh: hitung jumlah kemunculan kata/angka, cek anagram, cari elemen mayoritas.
+- Struktur: `Map` (atau `Object` dengan hati-hati).
+
+**4) Grouping (kelompokkan berdasarkan kunci)**
+- Contoh: kelompokkan transaksi per userId, log per endpoint, produk per kategori.
+- Struktur: `Map` dengan value berupa array: `Map<key, Array<item>>`.
+
+### `Object` vs `Map` (kapan pakai yang mana?)
+
+Di JavaScript, `Object` dan `Map` sama-sama bisa dipakai sebagai "hash map". Bedanya terasa saat data makin beragam dan kamu butuh perilaku yang lebih jelas.
+
+**Key types (tipe kunci)**
+- `Object`: kunci pada praktiknya adalah **string** atau **symbol**. Kalau kamu menulis `obj[123]`, itu sebenarnya jadi `"123"`.
+- `Map`: kunci bisa tipe apa pun: string, number, boolean, bahkan object/function.
+
+**Iteration order (urutan iterasi)**
+- `Map`: urutan iterasi mengikuti **urutan insertion** secara konsisten.
+- `Object`: punya aturan urutan sendiri (integer-like keys sering "diurutkan"); untuk pemula, lebih aman menganggap urutannya tidak selalu sesuai ekspektasi jika kuncinya campur.
+
+**Prototype pitfalls (`hasOwnProperty`)**
+`Object` mewarisi properti dari prototype. Ini bisa bikin bug:
+- Key seperti `"toString"` atau `"__proto__"` bisa bentrok.
+- Cek membership dengan `in` juga melihat prototype.
+
+Kalau kamu tetap ingin pakai object sebagai map, dua opsi aman:
+1) Cek kepemilikan properti secara eksplisit:
+
+```js
+const freq = {};
+// ... isi freq ...
+if (Object.prototype.hasOwnProperty.call(freq, "a")) {
+  console.log("ada key a");
+}
+
+// Alternatif modern (lebih readable):
+if (Object.hasOwn(freq, "a")) {
+  console.log("ada key a");
+}
+```
+
+2) Buat object tanpa prototype:
+
+```js
+const freq = Object.create(null);
+freq["toString"] = 1; // aman, tidak bentrok prototype
+console.log(freq.toString); // undefined (bukan fungsi dari prototype)
+```
+
+**Kapan `Map` lebih jelas?**
+- Saat kuncinya bukan string sederhana (mis. number yang ingin tetap number, atau object).
+- Saat kamu sering melakukan `get/set/has` dan ingin API yang eksplisit.
+- Saat kamu butuh iterasi yang jelas dan konsisten.
+- Saat kamu ingin menghindari gotcha prototype tanpa mikir lagi.
+
+### `Set`: membership + dedupe (dan ide union/intersection)
+
+`Set` menyimpan nilai unik.
+- `set.has(x)` untuk membership
+- `set.add(x)` menambah (tidak akan duplikat)
+- `set.delete(x)` menghapus
+
+Pengenalan ringan operasi himpunan:
+
+```js
+const A = new Set([1, 2, 3]);
+const B = new Set([3, 4]);
+
+// Union: semua elemen unik dari A dan B
+const union = new Set([...A, ...B]);
+
+// Intersection: elemen yang ada di kedua set
+const intersection = new Set([...A].filter(x => B.has(x)));
+
+console.log([...union]); // [1, 2, 3, 4]
+console.log([...intersection]); // [3]
+```
+
+### Intuisi kompleksitas (kenapa cepat?)
+
+`Map`/`Set` menggunakan hash table di balik layar.
+- `get/set/has` biasanya **`O(1)` rata-rata**.
+- Ada kasus ekstrem (banyak tabrakan hash) yang bisa lebih lambat, tapi untuk problem sehari-hari dan soal DSA, asumsi "rata-rata O(1)" adalah yang paling sering dipakai.
+
+### Gotcha umum (yang sering menjebak pemula)
+
+**1) Object sebagai key: berdasarkan referensi**
+Di `Map`, object bisa jadi key, tapi identitasnya berdasarkan referensi:
+
+```js
+const m = new Map();
+const a = { id: 1 };
+const b = { id: 1 };
+m.set(a, "A");
+console.log(m.get(b)); // undefined (a !== b)
+```
+
+`Set` juga membedakan object berdasarkan referensi:
+
+```js
+const s = new Set();
+s.add({ id: 1 });
+console.log(s.has({ id: 1 })); // false
+```
+
+Jika yang kamu maksud "key berdasarkan isi", kamu perlu **key primitive** (mis. string `id`) atau melakukan serialisasi (dengan catatan di bawah).
+
+**2) Stringifying key (JSON.stringify) ada risikonya**
+Kamu bisa mengubah object jadi string key:
+- Pro: bisa dipakai di `Map`/`Object`.
+- Kontra: urutan properti, nilai `undefined`, dan bentuk data bisa membuat string berbeda/aneh. Untuk pemula, lebih aman memilih key yang memang sudah unik (mis. `user.id`, `email`).
+
+Kalau kamu butuh composite key, biasanya lebih aman membuat string yang eksplisit, misalnya:
+
+```js
+const key = `${userId}|${action}`;
+```
+
+**3) Menghitung frekuensi dengan aman**
+- Dengan `Map`, pattern aman: `count = (map.get(k) ?? 0) + 1`.
+- Dengan `Object`, pastikan tidak kena prototype: pakai `Object.create(null)` atau `hasOwnProperty.call`.
+
+**4) Normalisasi case saat dedupe/membership**
+Email, username, tag, dan data teks sering case-insensitive.
+- Normalisasi dulu: `trim()` dan `toLowerCase()`/`toUpperCase()`.
+- Jangan dedupe dulu baru normalisasi (bisa lolos duplikat seperti `"A"` vs `"a"`).
+
+**5) Catatan kecil: `NaN` di `Set/Map`**
+Di `Set/Map`, `NaN` dianggap sama dengan `NaN`:
+
+```js
+const s = new Set([NaN]);
+console.log(s.has(NaN)); // true
+```
+
+## Contoh Cepat
+```js
+// Jalankan di console browser, Node.js, atau Bun.
+
+// 1) Frequency count (Map)
+const words = ["apel", "jeruk", "apel", "mangga", "apel", "jeruk"];
+const freq = new Map();
+for (const w of words) {
+  const key = w.toLowerCase();
+  freq.set(key, (freq.get(key) ?? 0) + 1);
+}
+console.log("freq(apel):", freq.get("apel")); // 3
+console.log("freq map ->", Object.fromEntries(freq));
+
+// 2) Membership + dedupe (Set)
+const rawTags = ["JS", "js", "DSA", "  js  ", "Map"];
+const uniqueTags = new Set();
+for (const t of rawTags) uniqueTags.add(t.trim().toLowerCase());
+console.log("has 'dsa'?", uniqueTags.has("dsa")); // true
+console.log("unique tags:", [...uniqueTags]); // [ 'js', 'dsa', 'map' ]
+
+// 3) Grouping by key (Map of arrays)
+const orders = [
+  { userId: "u1", sku: "A12" },
+  { userId: "u2", sku: "B07" },
+  { userId: "u1", sku: "C99" },
+];
+
+const byUser = new Map();
+for (const o of orders) {
+  if (!byUser.has(o.userId)) byUser.set(o.userId, []);
+  byUser.get(o.userId).push(o.sku);
+}
+
+console.log("group u1:", byUser.get("u1")); // [ 'A12', 'C99' ]
+console.log("all groups:", Object.fromEntries(byUser));
+```
+
+## Studi Kasus (Sehari-hari)
+
+### Dedupe kontak berdasarkan email + hitung frekuensi domain
+
+**Pernyataan masalah**
+Kamu menerima daftar kontak dari beberapa sumber (form, event, import). Kontak bisa duplikat karena email yang sama muncul berkali-kali, kadang dengan spasi atau huruf besar-kecil yang beda.
+
+Kamu ingin:
+1) Menghasilkan daftar kontak **unik berdasarkan email** (pakai kemunculan pertama sebagai yang disimpan).
+2) Menghitung frekuensi **domain email** dari kontak unik (mis. `gmail.com`, `company.co.id`).
+
+**Contoh input**
+```js
+const contacts = [
+  { name: "Ayu", email: "  AYU@gmail.com " },
+  { name: "Budi", email: "budi@company.co.id" },
+  { name: "Ayu (duplikat)", email: "ayu@gmail.com" },
+  { name: "Citra", email: "citra@GMAIL.com" },
+  { name: "Tanpa Email", email: "" },
+];
+```
+
+**Output yang diharapkan**
+```js
+{
+  uniqueContacts: [
+    { name: "Ayu", email: "ayu@gmail.com" },
+    { name: "Budi", email: "budi@company.co.id" },
+    { name: "Citra", email: "citra@gmail.com" },
+  ],
+  domainFrequency: {
+    "gmail.com": 2,
+    "company.co.id": 1,
+  },
+}
+```
+
+### Pendekatan
+- Normalisasi email dengan `trim()` dan `toLowerCase()`.
+- Gunakan `Set` untuk melacak email yang sudah pernah disimpan (membership).
+- Gunakan `Map` untuk menghitung frekuensi domain dengan aman (`get ?? 0`).
+- Ambil domain dari bagian setelah `@`.
+
+### Implementasi JavaScript (final)
+```js
+function normalizeEmail(rawEmail) {
+  const email = String(rawEmail ?? "").trim().toLowerCase();
+  return email;
+}
+
+function getDomain(email) {
+  const at = email.lastIndexOf("@");
+  if (at === -1) return "";
+  return email.slice(at + 1);
+}
+
+function dedupeContactsAndCountDomains(contacts) {
+  const seenEmails = new Set();
+  const domainFreq = new Map();
+  const uniqueContacts = [];
+
+  for (const c of contacts) {
+    const email = normalizeEmail(c.email);
+    if (email.length === 0) continue;
+
+    // Dedupe berdasarkan email (kemunculan pertama yang disimpan)
+    if (seenEmails.has(email)) continue;
+    seenEmails.add(email);
+
+    uniqueContacts.push({ name: c.name, email });
+
+    // Hitung domain
+    const domain = getDomain(email);
+    if (domain.length > 0) {
+      domainFreq.set(domain, (domainFreq.get(domain) ?? 0) + 1);
+    }
+  }
+
+  return {
+    uniqueContacts,
+    domainFrequency: Object.fromEntries(domainFreq),
+  };
+}
+
+// demo
+const contacts = [
+  { name: "Ayu", email: "  AYU@gmail.com " },
+  { name: "Budi", email: "budi@company.co.id" },
+  { name: "Ayu (duplikat)", email: "ayu@gmail.com" },
+  { name: "Citra", email: "citra@GMAIL.com" },
+  { name: "Tanpa Email", email: "" },
+];
+
+console.log(dedupeContactsAndCountDomains(contacts));
+```
+
+Kompleksitas waktu: O(n)
+
+Kompleksitas ruang: O(n)
+
+## Latihan
+1. Diberi array string (mis. nama kota) yang bisa beda case dan ada spasi di ujung, buat fungsi yang mengembalikan array unik dengan urutan kemunculan pertama tetap.
+    <details>
+      <summary>Petunjuk</summary>
+
+      - Normalisasi dulu: `trim()` dan `toLowerCase()`.
+      - Pakai `Set` untuk cek membership.
+    </details>
+
+2. Diberi array angka, kembalikan angka yang muncul paling sering (mode). Jika ada tie, boleh kembalikan salah satu.
+    <details>
+      <summary>Petunjuk</summary>
+
+      - Gunakan `Map` untuk frekuensi (angka -> count), mis. `const freq = new Map()`.
+      - Track `bestValue` dan `bestCount` saat iterasi.
+    </details>
+
+3. Diberi array object `{ userId, action }`, kelompokkan menjadi `Map` dari `userId -> array action`.
+    <details>
+      <summary>Petunjuk</summary>
+
+      - Pola grouping: `if (!map.has(key)) map.set(key, [])`.
+      - Lalu `map.get(key).push(item)`.
+    </details>
+
+4. Diberi dua array angka, buat fungsi yang mengembalikan intersection (elemen yang ada di keduanya), tanpa duplikat.
+    <details>
+      <summary>Petunjuk</summary>
+
+      - Masukkan array pertama ke `Set`.
+      - Iterasi array kedua, cek `has`, lalu masukkan ke `Set` hasil.
+    </details>
+
+5. Kamu punya array email, tapi ada yang invalid (tanpa `@`). Buat fungsi yang menghitung frekuensi domain hanya untuk email valid.
+    <details>
+      <summary>Petunjuk</summary>
+
+      - Normalisasi: `trim()` dan `toLowerCase()`.
+      - Cari posisi `@` dengan `lastIndexOf('@')`.
+      - Hitung pakai `Map` dengan pola `(get ?? 0) + 1`.
+    </details>
+
+## Ringkasan
+- `Set` cocok untuk membership check dan dedupe data.
+- `Map` cocok untuk frequency counting dan grouping (`Map<key, Array<...>>`).
+- Operasi `get/set/has` pada `Map/Set` umumnya `O(1)` rata-rata, sehingga banyak solusi turun dari `O(n^2)` ke `O(n)`.
+- `Object` bisa dipakai sebagai map, tapi waspadai prototype pitfalls; pertimbangkan `Object.create(null)` atau gunakan `Map`.
+- Normalisasi data (mis. case) dan pahami bahwa key object di `Map` berbasis referensi.

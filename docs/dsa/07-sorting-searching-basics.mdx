@@ -1,0 +1,285 @@
+# 07. Dasar sorting dan searching
+
+## Tujuan
+- Memahami kapan perlu sorting dan kapan cukup searching biasa.
+- Bisa memakai `Array.prototype.sort()` dengan benar (terutama untuk angka dan object).
+- Memahami perbedaan linear search vs binary search, serta kapan binary search valid.
+
+## Konsep Inti
+
+### Template terkait
+- Binary search (exact match): `/js-dsa/12-code-templates#tpl-binary-search-exact`
+- Binary search (lowerBound / first >= x): `/js-dsa/12-code-templates#tpl-binary-search-lower-bound`
+
+### Visualisasi (Mermaid)
+
+```mermaid
+flowchart TD
+  A[Array terurut] --> B[lo = 0, hi = n-1];
+  B --> C[mid = floor((lo+hi)/2)];
+  C --> D{arr[mid] dibanding x};
+  D -- == --> E[ketemu];
+  D -- < --> F[lo = mid + 1];
+  D -- > --> G[hi = mid - 1];
+  F --> C;
+  G --> C;
+```
+
+### Sorting itu untuk apa?
+Sorting (mengurutkan) adalah langkah "merapikan" data supaya:
+- Pencarian tertentu jadi lebih cepat (misalnya binary search).
+- Operasi seperti "ambil Top-N" atau "cari nilai minimum/maksimum" jadi lebih mudah.
+- Data lebih enak dibaca (UI daftar harga dari murah ke mahal, ranking nilai, dll.).
+
+Kapan sorting membantu?
+- Kamu akan melakukan banyak query/pencarian pada kumpulan data yang sama.
+- Kamu butuh operasi berbasis urutan: Top-N, median, rentang, deduplikasi terurut.
+
+Catatan: kalau kamu hanya perlu "cari satu elemen sekali" di array kecil, sorting bisa jadi kerja ekstra yang tidak perlu.
+
+### Gotcha `Array.prototype.sort()` di JavaScript
+`sort()` terlihat sederhana, tapi ada beberapa hal penting:
+
+**1) Default-nya membandingkan sebagai string**
+Tanpa comparator, elemen akan dibandingkan sebagai string (lexicographic).
+
+Contoh masalah:
+- `[2, 10, 1].sort()` menghasilkan `[1, 10, 2]` (karena "10" dianggap sebelum "2").
+
+Solusi: berikan comparator angka:
+- Naik: `(a, b) => a - b`
+- Turun: `(a, b) => b - a`
+
+**2) `sort()` memodifikasi (mutate) array asli**
+Ini sering bikin bug halus ketika array yang sama dipakai di tempat lain.
+
+Cara aman: copy dulu baru sort.
+```js
+const sorted = [...arr].sort((a, b) => a - b);
+// atau: const sorted = arr.slice().sort((a, b) => a - b);
+```
+
+**3) Sorting array of objects: sort by key**
+Misalnya urutkan berdasarkan `score`:
+```js
+items.sort((a, b) => a.score - b.score);
+```
+
+**4) Stable sort: modern JavaScript mengharuskan stabil, tapi tie-breaker tetap berguna**
+Sejak ES2019, spesifikasi mengharuskan `Array.prototype.sort()` bersifat **stable** (kalau comparator mengembalikan `0`, urutan relatif item yang setara dipertahankan).
+Di engine/versi lama, perilaku ini bisa berbeda.
+
+Jika kamu butuh stabilitas yang "pasti" (tie tidak berubah urutan aslinya), trik umum:
+- simpan index asli, lalu jadikan index sebagai tie-breaker.
+
+**5) Comparator jangan mengembalikan boolean**
+Comparator harus mengembalikan angka `< 0 / 0 / > 0`. Hindari `(a, b) => a > b` karena itu boolean dan bisa bikin urutan tidak konsisten.
+
+### Kompleksitas (Big-O) untuk sorting
+Umumnya sorting komparasi punya kompleksitas:
+- **Time: `O(n log n)`** (rata-rata/umum)
+- **Comparator cost**: setiap perbandingan memanggil comparator, jadi jika comparator mahal (mis. parsing string, hitung jarak, normalisasi), waktu nyata bisa membengkak.
+- **Space**: bisa `O(1)` tambahan (in-place) atau bisa butuh buffer internal; plus kalau kamu copy dulu (`slice()` / spread), itu jelas **`O(n)`** tambahan.
+
+### Searching dasar: linear vs binary search
+**Linear search**
+- Cara: cek satu per satu dari awal.
+- Time: `O(n)`.
+- Tidak butuh array terurut.
+
+**Binary search**
+- Cara: selalu "belah dua" area pencarian dengan `mid`.
+- Time: `O(log n)`.
+- Syarat: **array harus terurut** berdasarkan kriteria perbandingan yang sama (mis. numeric ascending).
+
+Catatan: kalau ada duplikasi, `binarySearchExact` bisa mengembalikan salah satu indeks yang cocok. Jika kamu butuh indeks pertama/terakhir, gunakan variasi `lowerBound`/`upperBound`.
+
+### Template binary search (exact match)
+Pola umum (indeks inklusif):
+```js
+let lo = 0;
+let hi = arr.length - 1;
+while (lo <= hi) {
+  const mid = Math.floor((lo + hi) / 2);
+  if (arr[mid] === target) return mid;
+  if (arr[mid] < target) lo = mid + 1;
+  else hi = mid - 1;
+}
+return -1;
+```
+
+Pitfall yang sering terjadi:
+- Salah kondisi loop: pakai `lo < hi` tapi update-nya seperti `lo = mid + 1` / `hi = mid - 1` (bisa melompati kandidat terakhir).
+- Salah update batas: lupa `+1`/`-1` sehingga loop tidak maju (infinite loop).
+- Mid rounding: pakai `Math.round` bisa berantakan; gunakan `Math.floor`.
+
+### (Opsional) Ide `lowerBound` ("posisi pertama yang >= x")
+Kalau kamu butuh "nilai pertama yang minimal memenuhi syarat" (mis. harga pertama yang >= 100k), `lowerBound` sangat berguna.
+Intinya: cari indeks terkecil `i` sehingga `arr[i] >= x` (array harus terurut naik).
+
+## Contoh Cepat
+```js
+// 1) Numeric sort yang benar
+const nums = [2, 10, 1, 5];
+const numsSorted = [...nums].sort((a, b) => a - b);
+console.log("nums original:", nums);
+console.log("nums sorted   :", numsSorted);
+
+// 2) Sort array of objects by key + tie-handling yang stabil
+// Catatan: sejak ES2019, `sort()` diharuskan stable. Tie-breaker index tetap berguna untuk hasil deterministik saat multi-kriteria.
+const players = [
+  { name: "Ayu", score: 90 },
+  { name: "Bima", score: 100 },
+  { name: "Cici", score: 90 },
+  { name: "Doni", score: 80 },
+];
+
+const playersSorted = players
+  .map((p, idx) => ({ ...p, idx }))
+  .sort((a, b) => (b.score - a.score) || (a.idx - b.idx))
+  .map(({ idx, ...p }) => p);
+
+console.log("players sorted:", playersSorted);
+
+// 3) Binary search (exact match) pada array terurut
+function binarySearchExact(sortedArr, target) {
+  let lo = 0;
+  let hi = sortedArr.length - 1;
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const v = sortedArr[mid];
+    if (v === target) return mid;
+    if (v < target) lo = mid + 1;
+    else hi = mid - 1;
+  }
+  return -1;
+}
+
+const sortedForSearch = [1, 4, 7, 9, 12, 20];
+console.log("index of 9 :", binarySearchExact(sortedForSearch, 9));
+console.log("index of 10:", binarySearchExact(sortedForSearch, 10));
+```
+
+## Studi Kasus (Sehari-hari)
+
+### Pernyataan masalah
+Kamu punya daftar **kode barang** di toko (angka). Setiap hari, daftar ini bertambah dan urutannya acak.
+Kamu ingin:
+1) Mengurutkan daftar kode barang sekali saja.
+2) Menjawab pertanyaan pelanggan dengan cepat: "kode X ada tidak?" (bisa berkali-kali).
+3) Menampilkan **Top-N** kode terbesar (mis. untuk audit data, atau kalau ID bersifat increment dan kamu ingin melihat data terbaru).
+
+Kalau kebutuhan kamu cuma "ada/tidak", `Set` sering lebih simpel. Sorting dipilih di sini karena kamu juga butuh Top-N dan tampilan terurut.
+
+### Contoh input
+```js
+const ids = [120, 5, 42, 105, 42, 7];
+const queries = [105, 6];
+const topN = 3;
+```
+
+### Output yang diharapkan
+- Daftar terurut naik: `[5, 7, 42, 42, 105, 120]`
+- Hasil pencarian:
+  - `105` ditemukan (mengembalikan indeks yang valid)
+  - `6` tidak ditemukan (`-1`)
+- Top-3 kode terbesar: `[120, 105, 42]`
+
+### Pendekatan
+- **Sorting sekali**: copy array dulu agar data asli tidak berubah, lalu sort numerik.
+- **Binary search** untuk setiap query: karena array sudah terurut.
+- **Top-N**: ambil `N` elemen terakhir dari array terurut (karena itu elemen terbesar), lalu balik agar urut menurun.
+
+### Implementasi (JavaScript)
+```js
+function binarySearchExact(sortedArr, target) {
+  let lo = 0;
+  let hi = sortedArr.length - 1;
+
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const v = sortedArr[mid];
+
+    if (v === target) return mid;
+    if (v < target) lo = mid + 1;
+    else hi = mid - 1;
+  }
+
+  return -1;
+}
+
+function prepareCatalog(ids) {
+  // Copy + numeric sort (hindari mutate data asli)
+  const sorted = [...ids].sort((a, b) => a - b);
+  return sorted;
+}
+
+function topNLargest(sortedAsc, n) {
+  // Jika n lebih besar dari panjang array, slice akan aman
+  return sortedAsc.slice(-n).reverse();
+}
+
+// Demo
+const ids = [120, 5, 42, 105, 42, 7];
+const queries = [105, 6];
+const topN = 3;
+
+const sortedCatalog = prepareCatalog(ids);
+console.log("sortedCatalog:", sortedCatalog);
+
+for (const q of queries) {
+  const idx = binarySearchExact(sortedCatalog, q);
+  console.log(`query ${q} -> index:`, idx);
+}
+
+console.log("topN:", topNLargest(sortedCatalog, topN));
+```
+
+Kompleksitas waktu: O(n log n) untuk sort + O(q log n) untuk q query
+
+Kompleksitas ruang: O(n) karena kita membuat copy array untuk sorting
+
+Kalau jumlah query sangat banyak, sorting sekali + binary search biasanya terasa jauh lebih cepat daripada linear search berulang-ulang.
+
+## Latihan
+1. **Numeric sort yang aman**: buat fungsi `sortNumbersAsc(arr)` yang tidak mengubah array asli.
+   
+   <details>
+     <summary>Petunjuk</summary>
+     <p>Gunakan <code>arr.slice()</code> atau spread <code>[...]</code> sebelum <code>.sort((a, b) =&gt; a - b)</code>.</p>
+   </details>
+
+2. **Sort object + tie-breaker**: urutkan array `{ name, score }` menurun berdasarkan `score`, dan jika skor sama, pertahankan urutan awal.
+   
+   <details>
+     <summary>Petunjuk</summary>
+     <p>Tambahkan field <code>idx</code> (index asli) sebelum sort, lalu jadikan <code>idx</code> sebagai tie-breaker.</p>
+   </details>
+
+3. **Binary search exact**: buat `binarySearchExact(sortedArr, target)` yang mengembalikan indeks atau `-1`.
+   
+   <details>
+     <summary>Petunjuk</summary>
+     <p>Gunakan pola <code>while (lo &lt;= hi)</code>; update batas pakai <code>mid + 1</code> / <code>mid - 1</code>.</p>
+   </details>
+
+4. **Lower bound**: buat `lowerBound(sortedArr, x)` yang mengembalikan indeks pertama `i` dengan `sortedArr[i] >= x` (atau `sortedArr.length` jika tidak ada).
+   
+    <details>
+      <summary>Petunjuk</summary>
+      <p>Pakai <code>hi</code> eksklusif dan jaga invariant: semua indeks &lt; <code>lo</code> pasti &lt; <code>x</code>, semua indeks &gt;= <code>hi</code> pasti &gt;= <code>x</code>.</p>
+    </details>
+
+5. **Cari Top-K tanpa ubah data asli**: buat fungsi yang menerima array angka acak dan `k`, lalu mengembalikan `k` angka terbesar dalam urutan menurun.
+   
+   <details>
+     <summary>Petunjuk</summary>
+     <p>Copy + sort naik, ambil <code>slice(-k)</code>, lalu <code>reverse()</code>.</p>
+   </details>
+
+## Ringkasan
+- Sorting membantu operasi berbasis urutan (Top-N, median) dan mempercepat pencarian tertentu.
+- `Array.prototype.sort()` default membandingkan sebagai string; untuk angka wajib pakai comparator.
+- `sort()` memodifikasi array asli; kalau ingin aman, copy dulu baru sort.
+- Linear search: `O(n)` dan tidak butuh array terurut. Binary search: `O(log n)` tapi butuh array terurut.
+- Binary search rawan off-by-one; pastikan update batas benar dan kondisi loop sesuai.

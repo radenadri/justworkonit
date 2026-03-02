@@ -1,0 +1,167 @@
+# Web3 Projects Implementation Guide
+
+> Panduan lengkap membangun aplikasi blockchain dari beginner hingga expert
+
+---
+
+## 📋 Project Overview
+
+**Web3 Projects** adalah kumpulan 4 project pembelajaran yang dirancang untuk membantu developer memahami pengembangan aplikasi blockchain secara bertahap. Dimulai dari konsep dasar hingga implementasi sistem governance yang kompleks.
+
+| Aspek | Detail |
+|-------|--------|
+| **Nama Proyek** | Web3 Learning Path |
+| **Arsitektur** | Smart Contracts (Solidity) + Frontend (Next.js + wagmi/viem) |
+| **Target** | Developer yang ingin mempelajari Web3 development |
+| **Pendekatan** | Tingkat kesulitan: Beginner → Intermediate → Advanced → Expert |
+
+---
+
+## 🏗️ Project Structure
+
+Terdapat 4 project dengan tingkat kesulitan berbeda:
+
+```
+web3-projects/
+├── 01-todo-list/          # Beginner - CRUD dengan Smart Contract
+├── 02-nft-gallery/        # Intermediate - NFT Gating
+├── 03-defi-vault/        # Advanced - DeFi Protocol
+└── 04-dao-voting/        # Expert - DAO Governance
+```
+
+---
+
+## 📚 Daftar Project
+
+| No. | Project | Tingkat | Deskripsi |
+|-----|---------|---------|-----------|
+| 01 | CRUD Todo List | **Beginner** | Aplikasi manajemen tugas dengan smart contract |
+| 02 | NFT Gated Gallery | **Intermediate** | Galeri seni dengan akses berbasis NFT |
+| 03 | DeFi Simple Vault | **Advanced** | Protokol tabungan dengan yield simulation |
+| 04 | DAO Voting System | **Expert** | Platform governance dengan voting on-chain |
+
+---
+
+## 🔧 Tech Stack
+
+### Smart Contracts
+
+| Komponen | Versi | Keterangan |
+|----------|-------|------------|
+| **Solidity** | ^0.8.24 | Smart contract language (minimum untuk OpenZeppelin v5.5+) |
+| **Foundry** | v1.4.4 | Development framework |
+| **OpenZeppelin** | ^5.5.0 | Smart contract library |
+| **Anvil** | v1.4.4 | Local blockchain (included in Foundry) |
+
+### Frontend
+
+| Komponen | Versi | Keterangan |
+|----------|-------|------------|
+| **Next.js** | 15.x | React framework (App Router) |
+| **React** | 19.x | UI library |
+| **wagmi** | ^2.x | Ethereum interaction |
+| **viem** | ^2.x | Ethereum client |
+| **RainbowKit** | ^2.2.10 | Wallet connection UI |
+| **TanStack Query** | ^5.x | Data fetching |
+
+### Tools
+
+| Tool | Purpose |
+|------|---------|
+| **Metamask** | Wallet untuk testing |
+| **Pinata** | IPFS gateway untuk NFT metadata |
+| **Sepolia/Testnet** | Test network untuk deploy |
+
+---
+
+## 📋 Document Structure
+
+Panduan ini terdiri dari 5 dokumen:
+
+| No. | File | Konten |
+|-----|------|--------|
+| 00 | `00-overview.md` | Overview proyek, arsitektur, tech stack (file ini) |
+| 01 | `01-todo-list.md` | Project 1: CRUD Todo List (Beginner) |
+| 02 | `02-nft-gallery.md` | Project 2: NFT Gated Gallery (Intermediate) |
+| 03 | `03-defi-vault.md` | Project 3: DeFi Simple Vault (Advanced) |
+| 04 | `04-dao-voting.md` | Project 4: DAO Voting System (Expert) |
+
+---
+
+## ✅ Prerequisites
+
+Sebelum memulai, pastikan Anda memiliki:
+
+### Tools
+- [ ] Node.js 18+ terinstall
+- [ ] Git terinstall
+- [ ] Metamask extension di browser
+
+### ⚠️ Catatan Penting
+
+**wagmi v3 + RainbowKit Compatibility:**
+- Per Januari 2026, RainbowKit **belum sepenuhnya support wagmi v3**
+- Masih ada issue yang belum fix: [GitHub Issue #2626](https://github.com/rainbow-me/rainbowkit/issues/2626)
+- **Rekomendasi:** Tetap gunakan wagmi v2 untuk saat ini dengan RainbowKit v2.2.x
+- Alternatif lain: Gunakan `wagmi/connectors` langsung tanpa RainbowKit jika butuh wagmi v3
+
+### Akun
+- [ ] Akun Alchemy/Infura (untuk testnet RPC)
+- [ ] Akun Etherscan (untuk verifikasi contract)
+- [ ] Akun Pinata (untuk IPFS - optional)
+
+### Pengetahuan Dasar
+- [ ] Pemahaman dasar JavaScript/TypeScript
+- [ ] Pemahaman dasar React/Next.js
+- [ ] Pemahaman dasar tentang blockchain dan Ethereum
+
+---
+
+## 🚀 Getting Started
+
+### Untuk Pemula
+
+Mulai dari **Project 01 (Todo List)** - ini adalah project paling sederhana yang memperkenalkan:
+- Write operations ke smart contract
+- Read operations dari smart contract
+- Event listening untuk real-time updates
+
+### Urutan yang Disarankan
+
+```
+Beginner → Intermediate → Advanced → Expert
+   (01)   →     (02)     →   (03)   →   (04)
+```
+
+Setiap project membangun pengetahuan dari project sebelumnya.
+
+---
+
+## 📋 Quick Reference
+
+### Network yang Digunakan
+
+| Network | Chain ID | RPC URL |
+|---------|----------|---------|
+| **Localhost** | 31337 | http://localhost:8545 |
+| **Sepolia** | 11155111 | Alchemy/Infura |
+| **Anvil** | - | 自动生成 |
+
+### Kontrak Penting
+
+| Kontrak | Lokasi | Purpose |
+|---------|--------|---------|
+| **Todo.sol** | `contracts/Todo.sol` | Manajemen tugas |
+| **NFTGallery.sol** | `contracts/NFTGallery.sol` | NFT dengan gating |
+| **SimpleVault.sol** | `contracts/SimpleVault.sol` | Deposit/Withdraw |
+| **GovernanceToken.sol** | `contracts/GovernanceToken.sol` | Token voting |
+| **Governor.sol** | `contracts/Governor.sol` | Sistem voting |
+
+### Environment Variables
+
+```bash
+# .env.local
+NEXT_PUBLIC_RPC_URL=...
+PRIVATE_KEY=...
+WALLET_CONNECT_PROJECT_ID=...
+```

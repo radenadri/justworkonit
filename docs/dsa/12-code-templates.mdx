@@ -1,0 +1,657 @@
+# 12. Template kode (JS)
+
+## Tujuan
+- Punya kumpulan template yang bisa langsung dicopy-paste saat latihan soal.
+- Mengingat kontrak input/output, kompleksitas, dan jebakan umum tiap pola.
+- Mempercepat dari "paham konsep" menjadi "bisa nulis solusi".
+
+## Konsep Inti
+
+Di latihan DSA, seringnya yang membuat lambat bukan idenya, tapi eksekusi: off-by-one, lupa edge case, atau lupa bentuk template.
+
+Bagian ini berisi template yang sengaja dibuat:
+- Kontrak jelas (input/output)
+- Kode JS yang runnable
+- Catatan kompleksitas
+- Pitfall umum yang sering bikin WA/TLE
+
+<a id="tpl-binary-search-exact"></a>
+### Template: Binary search - exact match
+
+Kontrak:
+- Input: `arr` (array terurut naik), `x` (nilai yang dicari)
+- Output: indeks `x` jika ada, atau `-1`
+
+```js
+function binarySearchExact(arr, x) {
+  let lo = 0;
+  let hi = arr.length - 1;
+
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const v = arr[mid];
+
+    if (v === x) return mid;
+    if (v < x) lo = mid + 1;
+    else hi = mid - 1;
+  }
+
+  return -1;
+}
+
+console.log(binarySearchExact([1, 3, 5, 7, 9], 7)); // 3
+console.log(binarySearchExact([1, 3, 5, 7, 9], 2)); // -1
+```
+
+Kompleksitas waktu: O(log n)
+
+Kompleksitas ruang: O(1)
+
+Kesalahan umum:
+- Array belum terurut (atau urut turun) tapi tetap pakai kondisi urut naik.
+- Loop condition salah (`lo < hi` vs `lo <= hi`) sehingga miss di ujung.
+- `mid` tidak dibulatkan sehingga jadi pecahan (di JS harus `Math.floor`).
+
+<a id="tpl-binary-search-lower-bound"></a>
+### Template: Binary search - lowerBound (first >= x)
+
+Kontrak:
+- Input: `arr` (array terurut naik), `x`
+- Output: indeks pertama `i` dengan `arr[i] >= x`, atau `arr.length` jika tidak ada
+
+```js
+function lowerBound(arr, x) {
+  let lo = 0;
+  let hi = arr.length; // hi eksklusif
+
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (arr[mid] < x) lo = mid + 1;
+    else hi = mid;
+  }
+
+  return lo;
+}
+
+console.log(lowerBound([1, 3, 3, 7, 9], 3)); // 1
+console.log(lowerBound([1, 3, 3, 7, 9], 4)); // 3
+console.log(lowerBound([1, 3, 3, 7, 9], 10)); // 5
+```
+
+Kompleksitas waktu: O(log n)
+
+Kompleksitas ruang: O(1)
+
+Kesalahan umum:
+- Salah definisi `hi` (harus eksklusif) lalu loop jadi infinite.
+- Salah kondisi pembanding (`<=` vs `<`) sehingga bergeser ke upperBound.
+- Lupa bahwa return bisa `arr.length` (insertion index di akhir).
+
+<a id="tpl-set-dedupe-stable"></a>
+### Template: Set - dedupe stabil (pertahankan urutan kemunculan pertama)
+
+Kontrak:
+- Input: `arr` (array nilai primitive: string/number)
+- Output: array baru berisi elemen unik, urutan mengikuti kemunculan pertama
+
+```js
+function dedupeStable(arr) {
+  const seen = new Set();
+  const out = [];
+
+  for (const x of arr) {
+    if (seen.has(x)) continue;
+    seen.add(x);
+    out.push(x);
+  }
+
+  return out;
+}
+
+console.log(dedupeStable(["A", "B", "A", "C", "B"])); // [ 'A', 'B', 'C' ]
+```
+
+Kompleksitas waktu: O(n)
+
+Kompleksitas ruang: O(n)
+
+Kesalahan umum:
+- Mengira `new Set(arr)` bisa dipakai untuk object dan menghapus duplikasi berdasarkan isi (untuk object, `Set` membedakan berdasarkan referensi).
+- Lupa normalisasi dulu kalau data case-insensitive (mis. email, tag).
+- Mengandalkan `Array.from(new Set(arr))` tanpa sadar itu tetap membuat salinan penuh (memori O(n)).
+
+<a id="tpl-map-frequency-count"></a>
+### Template: Map - frequency count (hitung frekuensi)
+
+Kontrak:
+- Input: `items` (array string/number)
+- Output: `Map` dari `item -> count`
+
+```js
+function frequencyMap(items) {
+  const freq = new Map();
+  for (const x of items) {
+    freq.set(x, (freq.get(x) ?? 0) + 1);
+  }
+  return freq;
+}
+
+const f = frequencyMap(["teh", "kopi", "teh"]);
+console.log(f.get("teh")); // 2
+console.log(f.get("susu") ?? 0); // 0
+```
+
+Kompleksitas waktu: O(n)
+
+Kompleksitas ruang: O(m) (m = jumlah nilai unik)
+
+Kesalahan umum:
+- Lupa default saat `get` mengembalikan `undefined` (gunakan `?? 0`).
+- Menggunakan object biasa lalu lupa prototype pitfalls (`__proto__`) untuk key yang aneh.
+- Tidak menormalisasi input (spasi, case) sehingga frekuensi jadi terpecah.
+
+<a id="tpl-map-group-by"></a>
+### Template: Map - group by key (kelompokkan)
+
+Kontrak:
+- Input: `items` array object, `keyFn(item)` menghasilkan key (string/number)
+- Output: `Map` dari `key -> array item`
+
+```js
+function groupBy(items, keyFn) {
+  const groups = new Map();
+
+  for (const item of items) {
+    const key = keyFn(item);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  }
+
+  return groups;
+}
+
+const orders = [
+  { userId: "u1", sku: "A" },
+  { userId: "u2", sku: "B" },
+  { userId: "u1", sku: "C" },
+];
+
+const byUser = groupBy(orders, (o) => o.userId);
+console.log(byUser.get("u1"));
+// [ { userId: 'u1', sku: 'A' }, { userId: 'u1', sku: 'C' } ]
+```
+
+Kompleksitas waktu: O(n)
+
+Kompleksitas ruang: O(n)
+
+Kesalahan umum:
+- Lupa inisialisasi array saat key baru.
+- `keyFn` menghasilkan object (by reference) tanpa sadar membuat key tidak konsisten.
+- Mutasi item setelah grouping sehingga hasil tampak berubah (karena referensi object sama).
+
+<a id="tpl-stack-validasi-kurung"></a>
+### Template: Stack - validasi kurung
+
+Kontrak:
+- Input: `s` string hanya berisi karakter `()[]{}`
+- Output: `true` jika urutan kurung valid, else `false`
+
+```js
+function isValidBrackets(s) {
+  const stack = [];
+  const closeToOpen = {
+    ")": "(",
+    "]": "[",
+    "}": "{",
+  };
+
+  for (const ch of s) {
+    if (ch === "(" || ch === "[" || ch === "{") {
+      stack.push(ch);
+      continue;
+    }
+
+    const expected = closeToOpen[ch];
+    if (!expected) return false; // karakter tak dikenal
+    if (stack.length === 0) return false;
+    if (stack[stack.length - 1] !== expected) return false;
+    stack.pop();
+  }
+
+  return stack.length === 0;
+}
+
+console.log(isValidBrackets("()[]{}")); // true
+console.log(isValidBrackets("(]")); // false
+console.log(isValidBrackets("([{}])")); // true
+```
+
+Kompleksitas waktu: O(n)
+
+Kompleksitas ruang: O(n)
+
+Kesalahan umum:
+- Lupa cek `stack` kosong di akhir (contoh: "((" seharusnya false).
+- Mengizinkan karakter selain kurung tanpa aturan yang jelas.
+- Salah mapping pasangan kurung sehingga kasus campuran gagal.
+
+<a id="tpl-queue-head-index"></a>
+### Template: Queue - head-index queue (enqueue/dequeue/peek/size/isEmpty)
+
+Kontrak:
+- Input: elemen apa pun via `enqueue(value)`
+- Output: `dequeue()` mengembalikan elemen terdepan atau `undefined` jika kosong
+
+```js
+class HeadQueue {
+  constructor() {
+    this._data = [];
+    this._head = 0;
+  }
+
+  enqueue(value) {
+    this._data.push(value);
+  }
+
+  dequeue() {
+    if (this.isEmpty()) return undefined;
+    const value = this._data[this._head];
+    this._head++;
+
+    // optional cleanup agar memori tidak membengkak
+    if (this._head > 1024 && this._head * 2 > this._data.length) {
+      this._data = this._data.slice(this._head);
+      this._head = 0;
+    }
+
+    return value;
+  }
+
+  peek() {
+    return this.isEmpty() ? undefined : this._data[this._head];
+  }
+
+  size() {
+    return this._data.length - this._head;
+  }
+
+  isEmpty() {
+    return this.size() === 0;
+  }
+}
+
+const q = new HeadQueue();
+q.enqueue(10);
+q.enqueue(20);
+console.log(q.peek()); // 10
+console.log(q.dequeue()); // 10
+console.log(q.size()); // 1
+console.log(q.isEmpty()); // false
+```
+
+Kompleksitas waktu: enqueue O(1), dequeue O(1) amortized, peek O(1)
+
+Kompleksitas ruang: O(n)
+
+Kesalahan umum:
+- Pakai `Array.shift()` untuk dequeue (O(n) tiap operasi).
+- Lupa cleanup: `_head` makin besar, array lama tetap nempel di memori.
+- Mengakses `peek()` saat kosong tanpa handle (jadi `undefined`).
+
+<a id="tpl-bfs-shortest-path"></a>
+### Template: BFS - shortest path distance (unweighted)
+
+Kontrak:
+- Input: `graph` adjacency list (objek: simpul -> array tetangga), `start` simpul start
+- Output: object `dist` (node -> jarak langkah), node tak terjangkau tidak ada di object
+
+```js
+function bfsDistances(graph, start) {
+  const dist = {};
+  dist[start] = 0;
+
+  const q = [];
+  let head = 0;
+  q.push(start);
+
+  while (head < q.length) {
+    const node = q[head++];
+    const neighbors = graph[node] ?? [];
+
+    for (const next of neighbors) {
+      if (dist[next] !== undefined) continue; // sudah visited
+      dist[next] = dist[node] + 1;
+      q.push(next);
+    }
+  }
+
+  return dist;
+}
+
+const g = {
+  A: ["B", "C"],
+  B: ["D"],
+  C: ["D", "E"],
+  D: [],
+  E: [],
+};
+console.log(bfsDistances(g, "A")); // { A: 0, B: 1, C: 1, D: 2, E: 2 }
+```
+
+Kompleksitas waktu: O(V + E)
+
+Kompleksitas ruang: O(V)
+
+Kesalahan umum:
+- Menandai visited saat pop, bukan saat push, sehingga node bisa masuk queue berkali-kali.
+- Menganggap BFS cocok untuk graph berbobot (untuk bobot gunakan Dijkstra).
+- Lupa handle node yang tidak ada key-nya di adjacency list.
+
+Catatan path reconstruction (opsional): simpan `prev[next] = node` saat pertama kali mengunjungi `next`, lalu backtrack dari target ke start.
+
+<a id="tpl-dfs-reachable-iterative"></a>
+### Template: DFS - reachable (iterative stack)
+
+Kontrak:
+- Input: `graph` adjacency list (objek: simpul -> array tetangga), `start` simpul start
+- Output: `Set` berisi semua node yang reachable dari `start`
+
+```js
+function dfsReachableIterative(graph, start) {
+  const visited = new Set();
+  const stack = [start];
+
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (visited.has(node)) continue;
+    visited.add(node);
+
+    const neighbors = graph[node] ?? [];
+    for (const next of neighbors) {
+      if (!visited.has(next)) stack.push(next);
+    }
+  }
+
+  return visited;
+}
+
+const g2 = {
+  A: ["B", "C"],
+  B: ["D"],
+  C: [],
+  D: ["A"],
+};
+console.log([...dfsReachableIterative(g2, "A")].sort()); // [ 'A', 'B', 'C', 'D' ]
+```
+
+Kompleksitas waktu: O(V + E)
+
+Kompleksitas ruang: O(V)
+
+Kesalahan umum:
+- Tidak pakai `visited` pada graph siklik sehingga loop tak berujung.
+- Menambah tetangga tanpa check visited, bikin stack membengkak (walau masih benar).
+- Salah mengira DFS memberi jarak terpendek (yang memberi jarak terpendek: BFS unweighted).
+
+<a id="tpl-sliding-window-fixed-max-sum-k"></a>
+### Template: Sliding window - fixed-size (max sum k)
+
+Kontrak:
+- Input: `nums` array angka, `k` panjang jendela
+- Output: jumlah maksimum dari subarray kontigu berukuran `k`, atau `null` jika invalid
+
+```js
+function maxSumFixedWindow(nums, k) {
+  if (k <= 0 || k > nums.length) return null;
+
+  let windowSum = 0;
+  for (let i = 0; i < k; i++) windowSum += nums[i];
+
+  let best = windowSum;
+  for (let right = k; right < nums.length; right++) {
+    windowSum += nums[right];
+    windowSum -= nums[right - k];
+    if (windowSum > best) best = windowSum;
+  }
+
+  return best;
+}
+
+console.log(maxSumFixedWindow([2, 1, 5, 1, 3, 2], 3)); // 9
+```
+
+Kompleksitas waktu: O(n)
+
+Kompleksitas ruang: O(1)
+
+Kesalahan umum:
+- Salah start indeks loop kedua (harus mulai dari `k`).
+- Tidak validasi `k` sehingga akses `nums[i]` out-of-range.
+- Menghitung ulang sum tiap posisi (O(n*k)) padahal bisa update O(1).
+
+<a id="tpl-sliding-window-variable-min-len-sum-target"></a>
+### Template: Sliding window - variable-size (min len sum >= target, positive ints)
+
+Kontrak:
+- Input: `target` number, `nums` array bilangan bulat positif
+- Output: panjang minimum subarray kontigu dengan `sum >= target`, atau `0` jika tidak ada
+
+```js
+function minLenSumAtLeast(target, nums) {
+  let left = 0;
+  let sum = 0;
+  let best = Infinity;
+
+  for (let right = 0; right < nums.length; right++) {
+    sum += nums[right];
+
+    while (sum >= target) {
+      best = Math.min(best, right - left + 1);
+      sum -= nums[left];
+      left++;
+    }
+  }
+
+  return best === Infinity ? 0 : best;
+}
+
+console.log(minLenSumAtLeast(7, [2, 3, 1, 2, 4, 3])); // 2 (4+3)
+console.log(minLenSumAtLeast(15, [1, 2, 3, 4])); // 0
+```
+
+Kompleksitas waktu: O(n)
+
+Kompleksitas ruang: O(1)
+
+Kesalahan umum:
+- Menggunakan template ini untuk array yang punya angka 0/negatif (invarian sum tidak monoton, perlu teknik lain).
+- Lupa `while (sum >= target)` (harus shrink sebanyak mungkin untuk dapat minimum).
+- Mengembalikan `Infinity` atau nilai besar saat tidak ada jawaban (seharusnya `0`).
+
+<a id="tpl-two-pointers-pair-sum-sorted"></a>
+### Template: Two pointers - pair sum on sorted array
+
+Kontrak:
+- Input: `nums` array terurut naik, `target`
+- Output: `[i, j]` indeks 0-based jika ada pasangan, atau `null`
+
+```js
+function twoSumSorted(nums, target) {
+  let left = 0;
+  let right = nums.length - 1;
+
+  while (left < right) {
+    const sum = nums[left] + nums[right];
+    if (sum === target) return [left, right];
+    if (sum < target) left++;
+    else right--;
+  }
+
+  return null;
+}
+
+console.log(twoSumSorted([1, 2, 4, 7, 11, 15], 15)); // [2, 4]
+console.log(twoSumSorted([1, 2, 4, 7, 11, 15], 100)); // null
+```
+
+Kompleksitas waktu: O(n)
+
+Kompleksitas ruang: O(1)
+
+Kesalahan umum:
+- Array tidak terurut sehingga arah gerak pointer jadi salah.
+- Salah kontrak output (kadang diminta nilai, bukan indeks; atau 1-based indexing).
+- Lupa `left < right` sehingga bisa pakai elemen yang sama dua kali.
+
+<a id="tpl-two-pointers-palindrome-normalized"></a>
+### Template: Two pointers - palindrome normalized (skip non-alnum, case-insensitive)
+
+Kontrak:
+- Input: `s` string
+- Output: `true` jika palindrome setelah normalisasi (abaikan non-alnum dan case), else `false`
+
+```js
+function isAlnum(ch) {
+  const code = ch.charCodeAt(0);
+  const isDigit = code >= 48 && code <= 57;
+  const isUpper = code >= 65 && code <= 90;
+  const isLower = code >= 97 && code <= 122;
+  return isDigit || isUpper || isLower;
+}
+
+function isPalindromeNormalized(s) {
+  let left = 0;
+  let right = s.length - 1;
+
+  while (left < right) {
+    while (left < right && !isAlnum(s[left])) left++;
+    while (left < right && !isAlnum(s[right])) right--;
+
+    const a = s[left].toLowerCase();
+    const b = s[right].toLowerCase();
+    if (a !== b) return false;
+
+    left++;
+    right--;
+  }
+
+  return true;
+}
+
+console.log(isPalindromeNormalized("A man, a plan, a canal: Panama")); // true
+console.log(isPalindromeNormalized("race a car")); // false
+```
+
+Kompleksitas waktu: O(n)
+
+Kompleksitas ruang: O(1)
+
+Kesalahan umum:
+- Salah urutan langkah (harus skip dulu baru compare).
+- Infinite loop karena lupa increment/decrement setelah compare.
+- Template ini hanya alnum ASCII; kalau butuh Unicode, perlu strategi lain.
+
+<a id="tpl-dp-top-down-memo"></a>
+### Template: DP - top-down memo (fib)
+
+Kontrak:
+- Input: `n` bilangan bulat non-negatif
+- Output: nilai Fibonacci ke-`n`
+
+```js
+function fibMemo(n, memo = new Map()) {
+  if (n < 0) throw new Error("n must be >= 0");
+  if (n <= 1) return n;
+  if (memo.has(n)) return memo.get(n);
+
+  const ans = fibMemo(n - 1, memo) + fibMemo(n - 2, memo);
+  memo.set(n, ans);
+  return ans;
+}
+
+console.log(fibMemo(0)); // 0
+console.log(fibMemo(1)); // 1
+console.log(fibMemo(10)); // 55
+```
+
+Kompleksitas waktu: O(n)
+
+Kompleksitas ruang: O(n)
+
+Kesalahan umum:
+- Base case tidak lengkap sehingga recursion tidak berhenti.
+- Lupa memoize hasil sebelum return (jadi tetap exponential).
+- Recursion depth bisa jadi masalah jika `n` sangat besar.
+
+<a id="tpl-dp-bottom-up-tab"></a>
+### Template: DP - bottom-up tab (fib) + note O(1) optimization
+
+Kontrak:
+- Input: `n` bilangan bulat non-negatif
+- Output: nilai Fibonacci ke-`n`
+
+```js
+function fibTab(n) {
+  if (n < 0) throw new Error("n must be >= 0");
+  if (n <= 1) return n;
+
+  const dp = new Array(n + 1);
+  dp[0] = 0;
+  dp[1] = 1;
+
+  for (let i = 2; i <= n; i++) {
+    dp[i] = dp[i - 1] + dp[i - 2];
+  }
+
+  return dp[n];
+}
+
+console.log(fibTab(10)); // 55
+```
+
+Kompleksitas waktu: O(n)
+
+Kompleksitas ruang: O(n)
+
+Catatan optimisasi O(1) space: untuk Fibonacci, kamu bisa menyimpan hanya dua nilai terakhir (`prev2`, `prev1`) tanpa array `dp`.
+
+Kesalahan umum:
+- Salah ukuran array `dp` (harus `n + 1`).
+- Off-by-one pada loop (`i <= n`).
+- Lupa handle `n` kecil (0 dan 1).
+
+## Contoh Cepat
+
+Catatan: potongan kode ini mengasumsikan `lowerBound`, `twoSumSorted`, dan `isPalindromeNormalized` sudah didefinisikan dari template di atas.
+
+```js
+// Gabungan cepat: cari posisi sisip (lowerBound), lalu cek pasangan sum.
+const arr = [1, 3, 3, 7, 9];
+const x = 4;
+const idx = lowerBound(arr, x);
+console.log("lowerBound:", idx); // 3
+
+console.log("twoSumSorted:", twoSumSorted([1, 2, 4, 7, 11, 15], 15)); // [2, 4]
+console.log("palindrome:", isPalindromeNormalized("No 'x' in Nixon")); // true
+```
+
+## Studi Kasus (Sehari-hari)
+
+Kamu punya daftar harga barang yang sudah terurut (naik). Saat user mengetik harga target, kamu ingin:
+- Menentukan posisi sisip yang benar supaya daftar tetap terurut (pakai `lowerBound`).
+- Mengecek apakah ada dua barang yang kalau dijumlahkan pas sama budget tertentu (pakai `twoSumSorted`).
+
+## Latihan
+- Implementasikan `upperBound` (indeks pertama `> x`) dengan memodifikasi `lowerBound`.
+- Dengan template `bfsDistances`, tambahkan `prev` agar bisa membangun rute dari `start` ke `target`.
+- Modifikasi `minLenSumAtLeast` agar mengembalikan juga subarray-nya (start/end index).
+- Buat variasi `isValidBrackets` yang mengabaikan karakter non-kurung (mis. teks biasa).
+- Optimalkan `fibTab` menjadi O(1) space dan bandingkan hasilnya.
+
+## Ringkasan
+- Template yang konsisten mengurangi bug off-by-one dan mempercepat eksekusi saat ujian/latihan.
+- Binary search: bedakan exact vs lowerBound; perhatikan kontrak indeks.
+- Queue head-index membuat BFS/level traversal tetap O(1) amortized per operasi.
+- Sliding window variable-size untuk positive ints; jika ada negatif, pola berubah.
+- DP top-down memo dan bottom-up tab sama-sama O(n) untuk Fibonacci, beda gaya dan tradeoff.

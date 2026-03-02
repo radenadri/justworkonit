@@ -1,0 +1,256 @@
+# 06. Dasar rekursi dan backtracking
+
+## Tujuan
+- Memahami apa itu rekursi dan hubungannya dengan call stack.
+- Bisa membedakan base case dan recursive case (dan kenapa base case itu wajib).
+- Mengenal pola backtracking (choose -> explore -> unchoose) untuk masalah kombinasi/permutasi.
+
+## Konsep Inti
+
+### Template terkait
+- DFS reachable (iteratif, alternatif rekursi): `/js-dsa/12-code-templates#tpl-dfs-reachable-iterative`
+
+### Visualisasi (Mermaid)
+
+```mermaid
+flowchart TD
+  A[Mulai: path kosong] --> B{Base case?};
+  B -- Ya --> C[Simpan jawaban];
+  B -- Tidak --> D[Pilih kandidat];
+  D --> E[Explore (rekursi)];
+  E --> F[Unchoose (undo)];
+  F --> D;
+  D --> G{Pruning?};
+  G -- Ya --> F;
+```
+
+### Apa itu rekursi (dan call stack)
+Rekursi adalah teknik ketika sebuah fungsi **memanggil dirinya sendiri** untuk menyelesaikan masalah yang lebih besar lewat versi yang lebih kecil.
+
+Saat fungsi rekursif dipanggil, JavaScript menaruh “catatan” panggilan fungsi itu di **call stack** (tumpukan panggilan). Setiap panggilan baru menambah stack, dan ketika fungsi selesai (return), stack berkurang.
+
+Intinya:
+- Rekursi = memecah masalah jadi sub-masalah yang lebih kecil.
+- Call stack = tempat JavaScript menyimpan urutan panggilan fungsi yang sedang berjalan.
+
+### Base case + recursive case
+Rekursi hampir selalu punya dua bagian:
+- **Base case**: kondisi berhenti. Saat base case terpenuhi, fungsi langsung return tanpa memanggil dirinya lagi.
+- **Recursive case**: langkah yang memanggil fungsi itu lagi dengan ukuran masalah yang lebih kecil.
+
+Kenapa base case penting?
+- Tanpa base case, fungsi akan memanggil dirinya terus (infinite recursion).
+- Akhirnya program error: *Maximum call stack size exceeded* (stack overflow).
+
+### Cara menalar rekursi
+Cara praktis untuk “memikirkan” rekursi:
+
+1) **Tentukan sub-masalah yang lebih kecil**
+- Misalnya, `sum(n)` bergantung pada `sum(n - 1)`.
+
+2) **Tentukan invariant (janji fungsi)**
+- Contoh invariant: “`sum(n)` mengembalikan jumlah 1..n untuk n >= 1”.
+- Dengan invariant yang jelas, kamu tinggal memastikan base case benar dan langkah rekursif menjaga invariant.
+
+3) **Pastikan selalu makin dekat ke base case**
+- Parameter harus “mengecil” atau keadaan harus makin mendekati kondisi berhenti.
+
+### Pitfall yang sering terjadi
+- **Infinite recursion**: lupa base case atau ukuran masalah tidak mengecil.
+- **Stack overflow**: rekursi terlalu dalam (mis. memanggil ribuan kali) dan stack habis.
+- **Mutating shared array/object**: memakai array yang sama di semua cabang tanpa hati-hati bisa membuat hasil “ketularan” perubahan.
+- **Lupa backtrack (undo step)**: pada backtracking, kalau tidak meng-undo pilihan, cabang berikutnya memakai state yang salah.
+
+### Backtracking: template choose -> explore -> unchoose
+Backtracking adalah rekursi yang **mencoba semua kemungkinan** dengan cara membangun solusi sedikit demi sedikit.
+
+Template mentalnya:
+1) **choose**: pilih satu opsi (tambahkan ke kandidat solusi)
+2) **explore**: lanjut rekursi ke langkah berikutnya
+3) **unchoose**: batalkan pilihan (kembalikan state)
+
+Kapan dipakai?
+- Kombinasi (pilih beberapa item)
+- Permutasi (urutan penting)
+- Pencarian jalur (paths) di grid/graf/pohon
+
+### Intuisi kompleksitas
+Untuk backtracking, pikirkan:
+- **Branching factor (b)**: berapa banyak pilihan di tiap langkah.
+- **Depth (d)**: berapa langkah sampai membentuk solusi.
+
+Worst-case waktu sering kira-kira `O(b^d)` (pertumbuhan eksponensial). Ruang (space) minimal dari rekursi biasanya `O(d)` untuk kedalaman stack, tapi bisa membesar jika kamu menyimpan semua hasil (output size).
+
+## Contoh Cepat
+```js
+// 1) Rekursi sederhana: factorial
+function factorial(n) {
+  if (n < 0) throw new Error("n harus >= 0");
+  if (n === 0) return 1; // base case
+  return n * factorial(n - 1); // recursive case
+}
+
+console.log("factorial(5) =", factorial(5)); // 120
+
+// 2) Backtracking sederhana: semua string biner sepanjang n
+function generateBinaryStrings(n) {
+  const result = [];
+  const path = [];
+
+  function backtrack(i) {
+    if (i === n) {
+      result.push(path.join(""));
+      return;
+    }
+
+    // choose -> explore -> unchoose
+    path.push("0");
+    backtrack(i + 1);
+    path.pop();
+
+    path.push("1");
+    backtrack(i + 1);
+    path.pop();
+  }
+
+  backtrack(0);
+  return result;
+}
+
+console.log("binary(n=3) =", generateBinaryStrings(3));
+```
+
+## Studi Kasus (Sehari-hari)
+
+### Generate semua PIN 4-digit dengan aturan
+
+**Pernyataan masalah**
+Kamu ingin membuat generator untuk semua kemungkinan PIN 4-digit untuk keperluan testing (misalnya menguji layar input PIN). PIN dibentuk dari digit yang diizinkan, tetapi ada beberapa aturan:
+- Digit yang dipakai hanya dari daftar `allowedDigits`.
+- PIN tidak boleh mengandung substring terlarang (misalnya "13").
+- PIN tidak boleh punya dua digit yang sama berturut-turut (misalnya "00", "11").
+
+**Contoh input**
+- `allowedDigits = [0, 1, 2, 3]`
+- `length = 4`
+- `forbiddenSubstrings = ["13"]`
+- `noConsecutiveSame = true`
+
+**Output yang diharapkan**
+- Daftar semua PIN valid (atau minimal jumlahnya, dan beberapa contoh pertama).
+
+### Pendekatan
+Masalah ini cocok untuk backtracking karena kita membangun PIN digit demi digit.
+
+Di setiap langkah, kita memilih satu digit (choose), melanjutkan ke digit berikutnya (explore), lalu membatalkan pilihan (unchoose).
+
+Kunci efisiensi backtracking adalah **pruning**: saat PIN sementara (partial) sudah melanggar aturan, kita berhenti lebih cepat tanpa melanjutkan cabang itu.
+
+### Implementasi (JavaScript)
+```js
+function generatePins({ allowedDigits, length, forbiddenSubstrings = [], noConsecutiveSame }) {
+  const results = [];
+  const path = [];
+
+  function violatesRules(nextDigit) {
+    // Cek aturan consecutive sama
+    if (noConsecutiveSame && path.length > 0) {
+      const prev = path[path.length - 1];
+      if (prev === String(nextDigit)) return true;
+    }
+
+    // Cek substring terlarang dengan melihat string sementara setelah menambah digit
+    const candidate = path.join("") + String(nextDigit);
+    for (const bad of forbiddenSubstrings) {
+      if (candidate.endsWith(bad)) return true;
+    }
+
+    return false;
+  }
+
+  function backtrack() {
+    if (path.length === length) {
+      results.push(path.join(""));
+      return;
+    }
+
+    for (const d of allowedDigits) {
+      if (violatesRules(d)) continue; // pruning
+
+      // choose
+      path.push(String(d));
+
+      // explore
+      backtrack();
+
+      // unchoose
+      path.pop();
+    }
+  }
+
+  backtrack();
+  return results;
+}
+
+const pins = generatePins({
+  allowedDigits: [0, 1, 2, 3],
+  length: 4,
+  forbiddenSubstrings: ["13"],
+  noConsecutiveSame: true,
+});
+
+console.log("Jumlah PIN valid =", pins.length);
+console.log("Contoh (10 pertama) =", pins.slice(0, 10));
+```
+
+Kompleksitas waktu: O(k^n * r) pada worst-case (k = jumlah digit yang diizinkan, n = panjang PIN, r = biaya cek aturan per langkah). Selain itu, kalau kamu mengembalikan semua hasil, waktu minimal juga Omega(output).
+
+Kompleksitas ruang: O(n) untuk kedalaman rekursi + O(output) jika menyimpan semua PIN di array hasil.
+
+## Latihan
+1. Buat fungsi rekursif `sumRange(a, b)` yang mengembalikan `a + (a+1) + ... + b`.
+    <details>
+      <summary>Petunjuk</summary>
+
+      - Pastikan base case saat `a === b`.
+      - Rekursi bisa memanggil `sumRange(a + 1, b)`.
+    </details>
+
+2. Buat fungsi rekursif untuk membalik string, misalnya `reverse("halo") -> "olah"`.
+    <details>
+      <summary>Petunjuk</summary>
+
+      - Base case saat string panjangnya 0 atau 1.
+      - Ambil karakter pertama/terakhir lalu gabungkan dengan hasil rekursi.
+    </details>
+
+3. Backtracking: buat fungsi `generateBinaryNoConsecutiveOnes(n)` untuk menghasilkan semua string biner panjang `n` yang **tidak mengandung** "11".
+    <details>
+      <summary>Petunjuk</summary>
+
+      - Simpan `path` sebagai array karakter.
+      - Saat ingin menambah "1", cek apakah karakter terakhir juga "1".
+    </details>
+
+4. Backtracking: buat fungsi `subsets(nums)` untuk menghasilkan semua subset dari array unik `nums`.
+    <details>
+      <summary>Petunjuk</summary>
+
+      - Pola umum: pada index `i`, kamu bisa memilih ambil `nums[i]` atau tidak.
+      - Jangan lupa unchoose saat selesai explore cabang.
+    </details>
+
+5. Backtracking: buat fungsi `permutations(chars)` untuk menghasilkan semua permutasi dari array karakter unik.
+    <details>
+      <summary>Petunjuk</summary>
+
+      - Gunakan array `used` (boolean) untuk menandai karakter yang sudah dipakai.
+      - Base case saat panjang `path` sama dengan `chars.length`.
+    </details>
+
+## Ringkasan
+- Rekursi menyelesaikan masalah dengan memanggil fungsi sendiri; call stack menyimpan urutan panggilan.
+- Base case adalah rem; tanpa base case rekursi bisa tak berakhir dan menyebabkan stack overflow.
+- Cara menalar: definisikan sub-masalah yang lebih kecil + invariant + pastikan selalu mendekati base case.
+- Backtracking mengikuti pola choose -> explore -> unchoose, cocok untuk kombinasi/permutasi/jalur.
+- Kompleksitas backtracking sering eksponensial; ruang minimal O(depth), tetapi hasil (output) bisa besar.

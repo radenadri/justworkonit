@@ -1,0 +1,332 @@
+# 10. Dasar graph
+
+## Tujuan
+- Memahami representasi graph (adjacency list) dan traversal dasar.
+
+Setelah bab ini, kamu bisa:
+- Menjelaskan apa itu graph (node/edge) dan variasinya (directed/undirected, weighted/unweighted).
+- Memodelkan graph di JavaScript dengan adjacency list.
+- Menulis BFS dan DFS dengan benar (aman dari cycle) dan tahu kapan memakainya.
+
+## Konsep Inti
+
+### Template terkait
+- Queue head-index: `/js-dsa/12-code-templates#tpl-queue-head-index`
+- BFS shortest path (unweighted): `/js-dsa/12-code-templates#tpl-bfs-shortest-path`
+- DFS reachable (iteratif): `/js-dsa/12-code-templates#tpl-dfs-reachable-iterative`
+
+### Visualisasi (Mermaid)
+
+```mermaid
+flowchart TD
+  A[start] --> B[enqueue start];
+  B --> C{queue masih ada?};
+  C -- Ya --> D[dequeue (head++)];
+  D --> E[cek neighbors];
+  E --> F{visited?};
+  F -- belum --> G[visited.add + dist + enqueue];
+  F -- sudah --> E;
+  G --> C;
+  C -- Tidak --> H[selesai];
+```
+
+### Apa itu graph?
+Graph (graf) adalah struktur data yang berisi:
+- **Node/vertex (V)**: titik/entitas.
+- **Edge (E)**: hubungan/koneksi antar node.
+
+Beberapa variasi umum:
+- **Undirected graph**: edge dua arah (A terhubung B berarti B juga terhubung A).
+- **Directed graph**: edge satu arah (A -> B tidak berarti B -> A).
+- **Unweighted graph**: semua edge “biayanya” sama (cukup hitung jumlah langkah/edge).
+- **Weighted graph**: edge punya bobot/biaya (mis. jarak, waktu, harga) sehingga shortest path butuh algoritma lain (mis. Dijkstra), bukan BFS biasa.
+
+### Representasi graph di JavaScript
+Yang paling sering dipakai untuk graph “jarang” (sparse) adalah **adjacency list**: untuk setiap node, simpan daftar tetangganya.
+
+Dua bentuk yang umum:
+- **`Map<string, string[]>`**
+  - Enak untuk key apa pun, tidak bentrok dengan property bawaan object.
+  - Lebih eksplisit untuk operasi `get/set`.
+- **Object**: `{ [node]: neighbors[] }`
+  - Simpel, tapi hati-hati key yang aneh dan mutasi yang tidak sengaja.
+
+Contoh bentuk adjacency list (undirected):
+- A: [B, C]
+- B: [A, D]
+
+### Traversal: BFS dan DFS
+
+#### BFS (Breadth-First Search)
+BFS menjelajah **melebar per level** dari titik start.
+- Pakai **queue**.
+- Pakai **visited** agar tidak loop saat ada cycle.
+
+Apa yang BFS berikan?
+- Di **unweighted graph**, BFS memberi **jarak terpendek berdasarkan jumlah edge** (minimum hops) dari start ke semua node yang bisa dijangkau.
+
+#### DFS (Depth-First Search)
+DFS menjelajah **sedalam mungkin** sebelum mundur.
+- Bisa pakai **rekursi** atau **stack** manual.
+- Tetap perlu **visited** untuk mencegah loop pada graph yang punya cycle.
+
+DFS bagus untuk:
+- Mengeksplorasi semua node yang reachable.
+- Menemukan komponen terhubung (connected components).
+- Deteksi cycle (dengan teknik yang tepat).
+- Topological sort pada DAG (directed acyclic graph).
+
+### Intuisi kompleksitas
+Untuk traversal yang rapi (BFS/DFS) dengan adjacency list:
+- **Time:** `O(V + E)` karena setiap node dan setiap edge diproses paling banyak beberapa kali.
+- **Space:** biasanya `O(V)` untuk `visited` + `O(V)` untuk queue/stack (di luar penyimpanan graph itu sendiri).
+
+### Pitfalls yang sering kejadian
+- **Cycle:** tanpa `visited`, BFS/DFS bisa berjalan tanpa henti.
+- **Graph tidak terhubung:** dari `start`, kamu hanya dapat komponen yang reachable; node lain tetap tidak tersentuh.
+- **Duplicate edges:** input bisa berisi edge yang sama berulang; adjacency list bisa punya duplikasi tetangga kalau tidak disaring.
+- **Mutasi struktur:** hati-hati kalau kamu pakai array neighbors lalu `push`/`sort`/`splice` di tempat yang sama; bisa bikin bug jika graph dipakai ulang. Pertimbangkan menyalin (`slice`, spread) saat perlu.
+
+## Contoh Cepat
+```js
+// Bangun adjacency list dari daftar edge, lalu BFS untuk jarak terpendek
+// Catatan: contoh ini unweighted + undirected.
+
+function buildAdjList(edges, { directed = false } = {}) {
+  /** @type {Map<string, string[]>} */
+  const g = new Map();
+
+  const ensure = (node) => {
+    if (!g.has(node)) g.set(node, []);
+  };
+
+  for (const [a, b] of edges) {
+    ensure(a);
+    ensure(b);
+    g.get(a).push(b);
+    if (!directed) g.get(b).push(a);
+  }
+
+  return g;
+}
+
+function bfsDistances(graph, start) {
+  // Mengembalikan Map node -> jarak (jumlah edge) dari start
+  const dist = new Map();
+  const visited = new Set();
+  const queue = [];
+  let head = 0;
+
+  visited.add(start);
+  dist.set(start, 0);
+  queue.push(start);
+
+  // Catatan: hindari `shift()` untuk data besar (O(n)). Pakai index `head`.
+  while (head < queue.length) {
+    const cur = queue[head++];
+    const curDist = dist.get(cur) ?? 0;
+    const neighbors = graph.get(cur) ?? [];
+
+    for (const nxt of neighbors) {
+      if (visited.has(nxt)) continue;
+      visited.add(nxt);
+      dist.set(nxt, curDist + 1);
+      queue.push(nxt);
+    }
+  }
+
+  return dist;
+}
+
+const edges = [
+  ["A", "B"],
+  ["A", "C"],
+  ["B", "D"],
+  ["C", "D"],
+  ["D", "E"],
+];
+
+const graph = buildAdjList(edges);
+console.log("Adjacency list (Map):", Object.fromEntries(graph));
+
+const dist = bfsDistances(graph, "A");
+console.log("Jarak dari A:", Object.fromEntries(dist));
+console.log("Jarak A -> E:", dist.get("E")); // 3 (A->B->D->E atau A->C->D->E)
+console.log("Apakah A bisa reach E?", dist.has("E"));
+
+// DFS minimal (iteratif) untuk cek reachability
+function dfsReachable(graph, start) {
+  const visited = new Set();
+  const stack = [start];
+
+  while (stack.length > 0) {
+    const cur = stack.pop();
+    if (visited.has(cur)) continue;
+    visited.add(cur);
+
+    const neighbors = graph.get(cur) ?? [];
+    for (const nxt of neighbors) {
+      if (!visited.has(nxt)) stack.push(nxt);
+    }
+  }
+
+  return visited;
+}
+
+console.log("Reachable dari A (DFS):", [...dfsReachable(graph, "A")]);
+```
+
+## Studi Kasus (Sehari-hari)
+
+### Pernyataan masalah
+Kamu punya data **relasi pertemanan** di sebuah aplikasi. Setiap pertemanan bersifat **dua arah** (kalau A teman B, maka B teman A).
+
+Tugasnya: cari **minimum hops** (jumlah "perantara") dari user `asal` ke user `tujuan`.
+- Jika `asal` langsung berteman dengan `tujuan`, hops = 1 (perantara = 0).
+- Jika perlu lewat satu orang perantara (asal -> X -> tujuan), hops = 2 (perantara = 1).
+- Jika tidak ada jalur, kembalikan `-1`.
+
+Karena semua hubungan "biayanya" sama (unweighted), kita bisa pakai **BFS** untuk shortest path berdasarkan jumlah edge.
+
+### Contoh input
+Misal data pertemanan (pasangan user):
+
+```js
+const friendships = [
+  ["Ayu", "Bima"],
+  ["Bima", "Citra"],
+  ["Citra", "Dimas"],
+  ["Bima", "Eka"],
+  ["Eka", "Fajar"],
+];
+
+const from = "Ayu";
+const to = "Dimas";
+```
+
+### Output yang diharapkan
+`3` karena jalur terpendek: `Ayu -> Bima -> Citra -> Dimas`.
+
+### Pendekatan
+1. Bentuk graph undirected dengan adjacency list dari `friendships`.
+2. Jalankan BFS dari `from`.
+3. Simpan jarak (distance) saat enqueue tetangga: `dist[neighbor] = dist[current] + 1`.
+4. Begitu node `to` ditemukan, bisa langsung return jaraknya (early exit).
+
+### Implementasi (JavaScript)
+```js
+function buildUndirectedGraph(edges) {
+  /** @type {Map<string, string[]>} */
+  const g = new Map();
+
+  const ensure = (node) => {
+    if (!g.has(node)) g.set(node, []);
+  };
+
+  for (const [a, b] of edges) {
+    ensure(a);
+    ensure(b);
+    g.get(a).push(b);
+    g.get(b).push(a);
+  }
+
+  return g;
+}
+
+function minHopsBFS(graph, from, to) {
+  if (from === to) return 0;
+
+  const visited = new Set([from]);
+  const dist = new Map([[from, 0]]);
+  const queue = [from];
+  let head = 0;
+
+  while (head < queue.length) {
+    const cur = queue[head++];
+    const neighbors = graph.get(cur) ?? [];
+    const curDist = dist.get(cur) ?? 0;
+
+    for (const nxt of neighbors) {
+      if (visited.has(nxt)) continue;
+      visited.add(nxt);
+      dist.set(nxt, curDist + 1);
+
+      if (nxt === to) return dist.get(nxt);
+      queue.push(nxt);
+    }
+  }
+
+  return -1;
+}
+
+const friendships = [
+  ["Ayu", "Bima"],
+  ["Bima", "Citra"],
+  ["Citra", "Dimas"],
+  ["Bima", "Eka"],
+  ["Eka", "Fajar"],
+];
+
+const graph = buildUndirectedGraph(friendships);
+console.log("Minimum hops Ayu -> Dimas =", minHopsBFS(graph, "Ayu", "Dimas"));
+console.log("Minimum hops Ayu -> Fajar =", minHopsBFS(graph, "Ayu", "Fajar"));
+console.log("Minimum hops Ayu -> Zara =", minHopsBFS(graph, "Ayu", "Zara"));
+```
+
+Kompleksitas waktu: O(V + E)
+
+Kompleksitas ruang: O(V + E) untuk graph, plus O(V) untuk visited/dist/queue
+
+## Latihan
+1. Dengan adjacency list, tulis BFS yang mengembalikan **jarak terpendek** (jumlah edge) dari node `start` ke semua node lain yang reachable.
+
+   <details>
+     <summary>Petunjuk</summary>
+
+     - BFS pakai queue + visited, dan simpan jarak saat enqueue.
+     - Representasi jarak bisa `Map(node -> number)` atau object.
+   </details>
+
+2. Modifikasi BFS agar mengembalikan **jalur terpendek** (array node) dari `start` ke `target`, bukan hanya jarak.
+
+   <details>
+     <summary>Petunjuk</summary>
+
+     - Simpan `parent` (node sebelumnya) saat pertama kali menemukan node.
+     - Setelah ketemu `target`, rekonstruksi jalur dengan mundur lewat `parent` lalu balikkan.
+   </details>
+
+3. Dengan DFS, hitung berapa **connected components** pada graph undirected.
+
+   <details>
+     <summary>Petunjuk</summary>
+
+     - Iterasi semua node; kalau belum visited, jalankan DFS dari node itu dan increment counter.
+     - Pastikan DFS menandai visited untuk semua tetangga.
+   </details>
+
+4. Pada undirected graph, buat fungsi untuk **mendeteksi cycle**.
+
+   <details>
+     <summary>Petunjuk</summary>
+
+     - DFS dengan parameter `parent`.
+     - Saat melihat tetangga yang sudah visited, pastikan itu bukan `parent`.
+   </details>
+
+5. Rapikan input edges yang mungkin punya duplikasi: `["A","B"]` muncul beberapa kali.
+
+   <details>
+     <summary>Petunjuk</summary>
+
+     - Saat membangun adjacency list, pertimbangkan pakai `Set` per node lalu konversi ke array di akhir.
+     - Tentukan juga apakah self-loop seperti `["A","A"]` mau diizinkan atau di-skip.
+   </details>
+
+## Ringkasan
+
+- Graph = node (V) + edge (E); variasi penting: directed/undirected, weighted/unweighted.
+- Representasi yang umum di JS: adjacency list (Map atau object).
+- BFS (queue + visited) bagus untuk jarak/jalur terpendek di graph unweighted.
+- DFS (stack/rekursi + visited) bagus untuk eksplorasi, komponen terhubung, dan deteksi cycle.
+- Traversal biasanya `O(V + E)`; wajib `visited` untuk menghindari loop pada cycle.

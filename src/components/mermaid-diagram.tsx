@@ -5,7 +5,11 @@ let mermaidPromise: Promise<typeof import("mermaid")> | null = null;
 function loadMermaid() {
   if (!mermaidPromise) {
     mermaidPromise = import("mermaid").then(m => {
-      m.default.initialize({
+      // Mermaid's ESM/CJS interop varies by bundler/runtime.
+      // Normalize to an object that has initialize/render.
+      const mermaid: any = (m as any).default ?? m;
+
+      mermaid.initialize({
         startOnLoad: false,
         theme: "base",
         themeVariables: {
@@ -37,8 +41,9 @@ export function MermaidDiagram({ code }: { code: string }) {
     loadMermaid().then(async m => {
       if (cancelled) return;
       try {
+        const mermaid: any = (m as any).default ?? m;
         const id = `mermaid-${Math.random().toString(36).slice(2, 9)}`;
-        const { svg } = await m.default.render(id, code);
+        const { svg } = await mermaid.render(id, code);
         if (!cancelled) setSvg(svg);
       } catch (err) {
         if (!cancelled)
@@ -53,9 +58,18 @@ export function MermaidDiagram({ code }: { code: string }) {
 
   if (error) {
     return (
-      <pre className="border border-neutral-300 bg-neutral-50 p-4 text-sm">
-        <code>Mermaid error: {error}</code>
-      </pre>
+      <div className="border border-neutral-300 bg-neutral-50 p-4 text-sm">
+        <pre className="whitespace-pre-wrap">
+          <code>Mermaid error: {error}</code>
+        </pre>
+
+        <details className="mt-3">
+          <summary className="cursor-pointer select-none">Raw diagram source</summary>
+          <pre className="mt-2 overflow-auto whitespace-pre-wrap border border-neutral-200 bg-white p-3">
+            <code>{code}</code>
+          </pre>
+        </details>
+      </div>
     );
   }
 

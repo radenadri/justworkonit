@@ -1,0 +1,297 @@
+# 08. Pola algoritma 1
+
+## Tujuan
+- Mengenal konsep "pola algoritma" dan kenapa pola ini mempercepat proses berpikir.
+- Memahami 2 pola paling sering dipakai untuk array/string: Two Pointers dan Sliding Window.
+- Bisa menulis template dasar + tahu jebakan umumnya.
+
+## Konsep Inti
+
+"Pola algoritma" (algorithm pattern) adalah cara pikir/strategi yang bisa dipakai berulang untuk banyak problem yang mirip.
+
+### Template terkait
+- Two pointers (pair sum pada sorted array): `/js-dsa/12-code-templates#tpl-two-pointers-pair-sum-sorted`
+- Two pointers (palindrome ternormalisasi): `/js-dsa/12-code-templates#tpl-two-pointers-palindrome-normalized`
+- Sliding window (ukuran tetap): `/js-dsa/12-code-templates#tpl-sliding-window-fixed-max-sum-k`
+- Sliding window (ukuran berubah): `/js-dsa/12-code-templates#tpl-sliding-window-variable-min-len-sum-target`
+
+### Visualisasi (Mermaid)
+
+```mermaid
+flowchart TD
+  A[Init sum untuk k elemen pertama] --> B[best = sum];
+  B --> C[right = k .. n-1];
+  C --> D[sum += arr[right]];
+  D --> E[sum -= arr[right-k]];
+  E --> F[best = max(best, sum)];
+  F --> C;
+```
+
+Daripada setiap soal dipecahkan dari nol, kamu belajar "bentuk" masalahnya:
+- Kalau datanya terurut dan kamu butuh mencari pasangan dari dua sisi, seringnya Two Pointers.
+- Kalau kamu butuh mencari nilai terbaik pada rentang berurutan (subarray/substring), seringnya Sliding Window.
+
+Keuntungannya:
+- Cepat menemukan pendekatan (tidak tersesat brute force).
+- Sering mengubah solusi dari O(n^2) menjadi O(n).
+- Membuat kode lebih konsisten (ada template).
+
+### Dua pointer (Two Pointers)
+
+Two pointers memakai dua indeks (mis. `left` dan `right`) yang bergerak secara terarah untuk menyapu data.
+
+Kapan dipakai (paling umum):
+- Array terurut (sorted array) dan kamu mencari:
+  - pasangan jumlah tertentu (two-sum pada sorted array)
+  - elemen dari dua ujung (opposite ends)
+- Partitioning / memisahkan dua kelompok (mis. semua bilangan negatif di kiri).
+- Menghapus duplikasi (remove duplicates) pada array terurut.
+- Palindrome check pada string (bandingkan huruf dari kiri dan kanan).
+
+Template umum (dua ujung pada data terurut):
+
+```js
+let left = 0;
+let right = arr.length - 1;
+
+while (left < right) {
+  // hitung/cek kondisi dari arr[left] dan arr[right]
+  // lalu gerakkan left atau right berdasarkan hasil cek
+}
+```
+
+Intuisi gerak:
+- Kalau array terurut naik:
+  - jumlah terlalu kecil -> `left++` (butuh angka lebih besar)
+  - jumlah terlalu besar -> `right--` (butuh angka lebih kecil)
+
+Pitfall (jebakan) yang sering terjadi:
+- Lupa syarat `left < right` (bisa infinite loop atau out-of-bounds).
+- Salah arah gerak pointer karena lupa data terurut naik/turun.
+- Kasus duplikasi: kadang perlu melewati nilai yang sama (mis. skip duplicates).
+- Mengembalikan indeks vs nilai: pastikan output sesuai soal.
+
+### Jendela geser (Sliding Window)
+
+Sliding window menjaga sebuah "jendela" kontigu (berurutan) di array/string, biasanya dengan dua pointer `left` dan `right`.
+
+Ada 2 jenis utama:
+
+1. Ukuran tetap (fixed-size)
+   - Contoh: "jumlah maksimum dari 7 hari berturut-turut".
+   - Jendela selalu panjang `k`.
+   - Umumnya: tambah elemen baru di kanan, buang elemen yang keluar di kiri.
+
+2. Ukuran berubah (variable-size)
+   - Contoh: "subarray terpendek dengan jumlah >= target" atau "substring dengan semua karakter tertentu".
+   - Jendela dibesarkan sampai memenuhi syarat, lalu dikecilkan untuk mencari yang terbaik.
+
+Kapan dipakai:
+- Masalah subarray/substring dengan constraint tertentu:
+  - maksimum/minimum pada rentang berurutan
+  - menghitung jumlah/total (running sum)
+  - menghitung frekuensi (counts) untuk memenuhi syarat
+
+Template umum (ukuran berubah / variable-size):
+
+```js
+let left = 0;
+let state = /* running sum, counter, dll */;
+
+for (let right = 0; right < arr.length; right++) {
+  // 1) expand window: masukkan arr[right] ke state
+
+  while (/* window memenuhi syarat dan kita ingin mengecilkan */) {
+    // 2) update jawaban (min/max)
+    // 3) shrink window: keluarkan arr[left] dari state
+    left++;
+  }
+}
+```
+
+Kunci sliding window adalah "maintain state" (menjaga kondisi jendela) agar kamu tidak menghitung ulang dari nol setiap geser.
+
+Template umum (ukuran tetap / fixed-size, panjang `k`):
+
+```js
+let windowSum = 0;
+for (let i = 0; i < k; i++) windowSum += arr[i];
+
+let best = windowSum;
+for (let right = k; right < arr.length; right++) {
+  windowSum += arr[right];
+  windowSum -= arr[right - k];
+  if (windowSum > best) best = windowSum;
+}
+```
+
+State yang paling sering dipakai:
+- Running sum: `sum += arr[right]`, lalu `sum -= arr[left]`.
+- Counter/frequency:
+  - pakai `Map` untuk key yang dinamis
+  - atau object `{}` untuk key sederhana
+- Frekuensi karakter untuk string (mis. anagram / constraint tertentu).
+
+### Kompleksitas
+
+Two pointers dan sliding window biasanya memungkinkan scan sekali jalan:
+- Time complexity sering O(n), karena setiap pointer bergerak maju (atau mundur) dan tidak bolak-balik.
+- Space complexity sering O(1) ekstra, kecuali kalau kamu butuh struktur counter/frequency (bisa O(m) untuk jumlah key unik).
+
+## Contoh Cepat
+```js
+// Two Pointers: cari pasangan pada array TERURUT yang jumlahnya = target.
+// Return indeks [i, j] (atau null jika tidak ada).
+function twoSumSorted(nums, target) {
+  let left = 0;
+  let right = nums.length - 1;
+
+  while (left < right) {
+    const sum = nums[left] + nums[right];
+    if (sum === target) return [left, right];
+    if (sum < target) left++;
+    else right--;
+  }
+  return null;
+}
+
+// Fixed-Size Sliding Window: jumlah maksimum dari k angka berurutan.
+function maxSumK(nums, k) {
+  if (k <= 0 || k > nums.length) return null;
+
+  let windowSum = 0;
+  for (let i = 0; i < k; i++) windowSum += nums[i];
+
+  let best = windowSum;
+  for (let right = k; right < nums.length; right++) {
+    windowSum += nums[right];
+    windowSum -= nums[right - k];
+    if (windowSum > best) best = windowSum;
+  }
+  return best;
+}
+
+console.log(twoSumSorted([1, 2, 4, 7, 11, 15], 15));
+// Contoh output: [2, 4] karena 4 + 11 = 15
+
+console.log(maxSumK([2, 1, 5, 1, 3, 2], 3));
+// Contoh output: 9 karena 5 + 1 + 3 = 9
+```
+
+## Studi Kasus (Sehari-hari)
+
+### Pernyataan masalah
+Kamu punya data penjualan harian (angka) selama beberapa hari. Kamu ingin mencari periode 7 hari berturut-turut dengan total penjualan tertinggi.
+
+### Contoh input
+
+```js
+const penjualan = [120, 80, 150, 90, 200, 110, 140, 160, 130, 170];
+const k = 7;
+```
+
+### Output yang diharapkan
+Total maksimum untuk 7 hari berturut-turut adalah `1000`.
+
+Penjelasan singkat: 7 hari pertama totalnya 890. Setelah digeser beberapa kali, total terbaiknya 1000 (hari ke-4 s.d. ke-10).
+
+### Pendekatan
+Ini adalah fixed-size sliding window.
+
+Langkahnya:
+- Hitung jumlah 7 hari pertama sebagai `windowSum`.
+- Simpan sebagai `best`.
+- Geser jendela satu per satu:
+  - tambahkan penjualan hari baru (kanan)
+  - kurangi penjualan hari yang keluar (kiri)
+- Update `best` setiap kali.
+
+Keuntungan sliding window: kamu tidak menghitung ulang jumlah 7 hari dari nol tiap posisi, cukup update dua angka.
+
+### Implementasi (JavaScript)
+
+```js
+function maxTotalPenjualanKHari(penjualan, k) {
+  if (k <= 0 || k > penjualan.length) return null;
+
+  let windowSum = 0;
+  for (let i = 0; i < k; i++) windowSum += penjualan[i];
+
+  let best = windowSum;
+  let bestStartIndex = 0;
+
+  for (let right = k; right < penjualan.length; right++) {
+    windowSum += penjualan[right];
+    windowSum -= penjualan[right - k];
+
+    if (windowSum > best) {
+      best = windowSum;
+      bestStartIndex = right - k + 1;
+    }
+  }
+
+  return {
+    bestTotal: best,
+    range: [bestStartIndex, bestStartIndex + k - 1],
+  };
+}
+
+const penjualan = [120, 80, 150, 90, 200, 110, 140, 160, 130, 170];
+const hasil = maxTotalPenjualanKHari(penjualan, 7);
+
+console.log(hasil);
+// { bestTotal: 1000, range: [3, 9] }
+
+console.log(penjualan.slice(hasil.range[0], hasil.range[1] + 1));
+// [90, 200, 110, 140, 160, 130, 170]
+```
+
+Kompleksitas waktu: O(n)
+
+Kompleksitas ruang: O(1)
+
+## Latihan
+1. Diberi array bilangan bulat positif dan sebuah `target`, cari panjang subarray terpendek yang jumlahnya >= `target`.
+    <details>
+      <summary>Petunjuk</summary>
+
+      Gunakan sliding window variable-size: perluas ke kanan sampai sum >= target, lalu kecilkan dari kiri sambil update jawaban.
+
+      Catatan: ini bekerja efisien karena semua angka positif, jadi saat `sum` sudah >= target, menggeser `left` hanya akan mengecilkan `sum` (monoton).
+    </details>
+
+2. Diberi string, tentukan apakah string tersebut palindrome (abaikan karakter non-huruf/angka, dan anggap huruf besar-kecil sama).
+    <details>
+      <summary>Petunjuk</summary>
+
+      Pakai two pointers dari kiri dan kanan. Lewati karakter non-huruf/angka, lalu bandingkan setelah di-lowercase.
+    </details>
+
+3. Diberi array terurut, hapus duplikasi "in-place" sehingga setiap nilai unik muncul sekali. Kembalikan panjang bagian uniknya.
+    <details>
+      <summary>Petunjuk</summary>
+
+      Two pointers versi "write index": satu pointer membaca, satu pointer menulis elemen unik berikutnya.
+    </details>
+
+4. Diberi array angka, cari nilai maksimum dari jumlah `k` elemen berurutan.
+    <details>
+      <summary>Petunjuk</summary>
+
+      Jendela geser ukuran tetap: hitung jumlah pertama, lalu geser dengan tambah kanan dan kurang kiri.
+    </details>
+
+5. Diberi array terurut dan `target`, cari apakah ada pasangan yang jumlahnya `target` (boleh return boolean saja).
+    <details>
+      <summary>Petunjuk</summary>
+
+      Two pointers dari dua ujung. Jika jumlah terlalu kecil geser kiri; jika terlalu besar geser kanan.
+    </details>
+
+## Ringkasan
+
+- Pola algoritma membantu mengklasifikasikan problem, sehingga kamu bisa memakai strategi yang sama berkali-kali.
+- Two pointers cocok untuk data terurut, dua ujung, partitioning, remove duplicates, dan palindrome.
+- Sliding window cocok untuk subarray/substring kontigu: fixed-size (panjang tetap) dan variable-size (panjang berubah).
+- Keduanya sering membuat solusi menjadi O(n) karena pointer bergerak satu arah.
+- State yang sering dipakai: running sum, counter (Map/object), frequency map.

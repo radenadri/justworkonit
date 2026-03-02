@@ -16,7 +16,25 @@ function CodeRouter({
   ...props
 }: React.ComponentProps<"code">) {
   if (className === "language-mermaid") {
-    return <MermaidDiagram code={String(children).trim()} />;
+    // In MDX, `children` for fenced code blocks can be an array.
+    // - `String(children)` stringifies arrays with commas -> corrupts Mermaid.
+    // - In some cases, the array parts split on line boundaries, but without preserving
+    //   a newline at the boundary; naive joining can collapse two statements onto one line.
+    const parts = Children.toArray(children)
+      .map(part => (typeof part === "string" || typeof part === "number" ? String(part) : ""))
+      .filter(Boolean);
+
+    const code = parts
+      .reduce((acc, seg) => {
+        if (!acc) return seg;
+        const accEndsWithNewline = acc.endsWith("\n");
+        const segStartsWithNewline = seg.startsWith("\n");
+        return accEndsWithNewline || segStartsWithNewline ? acc + seg : acc + "\n" + seg;
+      }, "")
+      .replace(/\r\n/g, "\n")
+      .trim();
+
+    return <MermaidDiagram code={code} />;
   }
   return (
     <code className={className} {...props}>

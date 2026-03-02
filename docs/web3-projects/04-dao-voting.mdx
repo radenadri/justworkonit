@@ -1,0 +1,765 @@
+# Project 4: DAO Voting System (Expert)
+
+> Platform tata kelola organisasi terdesentralisasi untuk pemungutan suara proposal
+
+---
+
+## 📋 Overview
+
+**Tingkat:** Expert  
+**Tujuan:** Implementasi sistem governance yang kompleks dan manajemen state proposal
+
+### Apa yang Akan Dipelajari
+
+- ERC20Votes untuk governance token
+- OpenZeppelin Governor Contract
+- State machine proposal (Pending, Active, Succeeded, Executed)
+- Sistem voting (For, Against, Abstain)
+- Voting delay dan period configuration
+- Eksekusi otomatis proposal yang lolos
+- Integrasi frontend untuk governance
+
+---
+
+## 🎯 Fitur Utama
+
+| Fitur | Tipe | Deskripsi |
+|-------|------|-----------|
+| Create Proposal | Write | Membuat proposal baru |
+| Cast Vote | Write | Voting For/Against/Abstain |
+| Proposal Tracking | Read | Track status proposal |
+| Execute Proposal | Write | Eksekusi proposal yang lolos |
+| Voting Results | Read | Progress bar hasil voting |
+
+---
+
+## 🏗️ Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    FRONTEND (Next.js)                        │
+│                                                             │
+│   ┌─────────────────┐    ┌─────────────────────────────┐ │
+│   │ CreateProposal  │    │      Proposal List           │ │
+│   │    Form         │    │  ┌─────────────────────────┐│ │
+│   └────────┬────────┘    │  │  Proposal Card          ││ │
+│            │              │  │  - Status               ││ │
+│            └──────────────│  │  - Voting Progress      ││ │
+│                    ┌──────▼──┐└─────────────────────────┘│ │
+│                    │ Cast Vote │                            │ │
+│                    └──────────┘                            │ │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│              SMART CONTRACTS                                  │
+│                                                             │
+│   ┌────────────────────┐      ┌────────────────────────┐  │
+│   │ GovernanceToken.sol │      │   GovernorContract.sol  │  │
+│   │ - ERC20Votes       │      │  - createProposal()   │  │
+│   │ - delegate()       │      │  - castVote()         │  │
+│   │ - getVotes()       │      │  - execute()          │  │
+│   └────────────────────┘      │  - state()            │  │
+│                                └────────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 💻 Smart Contracts
+
+### GovernanceToken.sol
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
+import {ERC20Votes} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Votes.sol";
+
+contract GovernanceToken is ERC20, ERC20Permit, ERC20Votes {
+    
+    uint256 public constant INITIAL_SUPPLY = 1_000_000 * 10 ** decimals();
+    
+    constructor() ERC20("GovernanceToken", "GOV") ERC20Permit("GovernanceToken") {
+        _mint(msg.sender, INITIAL_SUPPLY);
+    }
+    
+    // Override required by Solidity
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
+    
+    function burn(address from, uint256 amount) external {
+        _burn(from, amount);
+    }
+    
+    // Overrides required by ERC20Votes
+    function _update(
+        address from,
+        address to,
+        uint256 value
+    ) internal override(ERC20, ERC20Votes) {
+        super._update(from, to, value);
+    }
+    
+    function nonces(
+        address owner
+    ) public view override(ERC20Permit, Nonces) returns (uint256) {
+        return super.nonces(owner);
+    }
+}
+```
+
+### GovernorContract.sol
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import {Governor} from "@openzeppelin/contracts/governance/Governor.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
+
+contract DAOGovernor is Governor {
+    ERC20 public immutable token;
+    
+    // Governance parameters
+    uint256 public votingDelay = 1 days;
+    uint256 public votingPeriod = 7 days;
+    uint256 public proposalThreshold = 1 * 10 ** 18;
+    uint256 public quorum = 4; // 4% of tokens
+    
+    constructor(ERC20 _token) {
+        token = _token;
+    }
+    
+    // votingDelay: How long after proposal is created can people vote
+    function votingDelay() public view override returns (uint256) {
+        return votingDelay;
+    }
+    
+    // votingPeriod: How long does the voting last
+    function votingPeriod() public view override returns (uint256) {
+        return votingPeriod;
+    }
+    
+    // proposalThreshold: How many tokens needed to create proposal
+    function proposalThreshold() public view override returns (uint256) {
+        return proposalThreshold;
+    }
+    
+    // quorum: Minimum tokens needed for proposal to pass
+    function quorum(
+        uint256 blockNumber
+    ) public view override returns (uint256) {
+        return (token.getPastTotalSupply(blockNumber) * quorum) / 100;
+    }
+    
+    // Execute actions for passed proposal
+    function execute(
+        address[] calldata targets,
+        uint256[] calldata values,
+        bytes[] calldata calldatas,
+        bytes32 descriptionHash
+    ) public payable override returns (uint256) {
+        return super.execute(targets, values, calldatas, descriptionHash);
+    }
+    
+    // Proposal state counting
+    function proposalState(
+        uint256 proposalId
+    ) public view override returns (ProposalState) {
+        return super.proposalState(proposalId);
+    }
+    
+    // Cast vote with reason
+    function castVoteWithReason(
+        uint256 proposalId,
+        uint8 support,
+        string calldata reason
+    ) public override returns (uint256) {
+        return super.castVoteWithReason(proposalId, support, reason);
+    }
+}
+```
+
+---
+
+## 🧪 Testing
+
+```solidity
+// test/DAOGovernor.t.sol
+pragma solidity ^0.8.24;
+
+import {Test, console} from "forge-std/Test.sol";
+import {GovernanceToken} from "../src/GovernanceToken.sol";
+import {DAOGovernor} from "../src/DAOGovernor.sol";
+
+contract DAOGovernorTest is Test {
+    GovernanceToken public govToken;
+    DAOGovernor public governor;
+    
+    address public proposer = address(0x1);
+    address public voter1 = address(0x2);
+    address public voter2 = address(0x3);
+    
+    uint256 public constant PROPOSAL_THRESHOLD = 1e18;
+    
+    function setUp() public {
+        govToken = new GovernanceToken();
+        governor = new DAOGovernor(govToken);
+        
+        // Give tokens to voters
+        govToken.transfer(proposer, 100 * 1e18);
+        govToken.transfer(voter1, 100 * 1e18);
+        govToken.transfer(voter2, 100 * 1e18);
+    }
+    
+    function test_createProposal() public {
+        vm.prank(proposer);
+        govToken.delegate(proposer);
+        
+        address[] memory targets = new address[](1);
+        targets[0] = address(govToken);
+        
+        uint256[] memory values = new uint256[](1);
+        values[0] = 0;
+        
+        bytes[] memory calldatas = new bytes[](1);
+        calldatas[0] = abi.encodeWithSignature("mint(address,uint256)", proposer, 1);
+        
+        vm.prank(proposer);
+        uint256 proposalId = governor.propose(targets, values, calldatas, "Test Proposal");
+        
+        assertGt(proposalId, 0);
+    }
+    
+    function test_castVote() public {
+        // Setup - delegate and create proposal
+        vm.prank(proposer);
+        govToken.delegate(proposer);
+        
+        address[] memory targets = new address[](1);
+        targets[0] = address(govToken);
+        
+        uint256[] memory values = new uint256[](1);
+        values[0] = 0;
+        
+        bytes[] memory calldatas = new bytes[](1);
+        calldatas[0] = abi.encodeWithSignature("mint(address,uint256)", proposer, 1);
+        
+        vm.prank(proposer);
+        uint256 proposalId = governor.propose(targets, values, calldatas, "Test Proposal");
+        
+        // Warp to voting period
+        vm.roll(block.number + 1 + 1);
+        
+        // Vote
+        vm.prank(voter1);
+        govToken.delegate(voter1);
+        
+        vm.prank(voter1);
+        governor.castVote(proposalId, 1); // Vote For
+        
+        (uint256 forVotes, uint256 againstVotes, ) = governor.proposalVotes(proposalId);
+        
+        assertEq(forVotes, 1e18);
+    }
+}
+```
+
+---
+
+## 🌐 Frontend Integration
+
+### Governor ABI
+
+```typescript
+// abi/governance.ts
+export const governorAbi = [
+  {
+    type: 'function',
+    name: 'propose',
+    inputs: [
+      { name: 'targets', type: 'address[]' },
+      { name: 'values', type: 'uint256[]' },
+      { name: 'signatures', type: 'string[]' },
+      { name: 'calldatas', type: 'bytes[]' },
+      { name: 'description', type: 'string' },
+    ],
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    name: 'castVote',
+    inputs: [
+      { name: 'proposalId', type: 'uint256' },
+      { name: 'support', type: 'uint8' },
+    ],
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    name: 'castVoteWithReason',
+    inputs: [
+      { name: 'proposalId', type: 'uint256' },
+      { name: 'support', type: 'uint8' },
+      { name: 'reason', type: 'string' },
+    ],
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    name: 'state',
+    inputs: [{ name: 'proposalId', type: 'uint256' }],
+    outputs: [{ name: '', type: 'uint8' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'proposalVotes',
+    inputs: [{ name: 'proposalId', type: 'uint256' }],
+    outputs: [
+      { name: 'forVotes', type: 'uint256' },
+      { name: 'againstVotes', type: 'uint256' },
+      { name: 'abstainVotes', type: 'uint256' },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'execute',
+    inputs: [
+      { name: 'targets', type: 'address[]' },
+      { name: 'values', type: 'uint256[]' },
+      { name: 'calldatas', type: 'bytes[]' },
+      { name: 'descriptionHash', type: 'bytes32' },
+    ],
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'payable',
+  },
+  {
+    type: 'function',
+    name: 'votingDelay',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'votingPeriod',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'quorum',
+    inputs: [{ name: 'blockNumber', type: 'uint256' }],
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+] as const
+
+export const tokenAbi = [
+  {
+    type: 'function',
+    name: 'delegate',
+    inputs: [{ name: 'delegatee', type: 'address' }],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    name: 'getVotes',
+    inputs: [{ name: 'account', type: 'address' }],
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'balanceOf',
+    inputs: [{ name: 'account', type: 'address' }],
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+] as const
+```
+
+### Proposal State Enum
+
+```typescript
+export enum ProposalState {
+  Pending,   // 0
+  Active,    // 1
+  Canceled,  // 2
+  Defeated,  // 3
+  Succeeded, // 4
+  Queued,    // 5
+  Expired,   // 6
+  Executed    // 7
+}
+```
+
+### Hooks
+
+#### Create Proposal
+
+```typescript
+// hooks/useCreateProposal.ts
+import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
+import { governorAbi } from '@/abi/governance'
+
+const GOVERNOR_ADDRESS = '0x...'
+
+interface ProposalInput {
+  targets: string[]
+  values: bigint[]
+  signatures: string[]
+  calldatas: string[]
+  description: string
+}
+
+export function useCreateProposal() {
+  const { data: hash, writeContract, isPending } = useWriteContract()
+  
+  const { isLoading: isConfirming, isSuccess } = 
+    useWaitForTransactionReceipt({ hash })
+  
+  function createProposal(input: ProposalInput) {
+    writeContract({
+      address: GOVERNOR_ADDRESS,
+      abi: governorAbi,
+      functionName: 'propose',
+      args: [
+        input.targets,
+        input.values,
+        input.signatures,
+        input.calldatas,
+        input.description,
+      ],
+    })
+  }
+  
+  return { createProposal, hash, isPending, isConfirming, isSuccess }
+}
+```
+
+#### Cast Vote
+
+```typescript
+// hooks/useCastVote.ts
+import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
+import { governorAbi } from '@/abi/governance'
+
+const GOVERNOR_ADDRESS = '0x...'
+
+export enum VoteType {
+  Against = 0,
+  For = 1,
+  Abstain = 2
+}
+
+export function useCastVote() {
+  const { data: hash, writeContract } = useWriteContract()
+  
+  const { isLoading: isConfirming } = 
+    useWaitForTransactionReceipt({ hash })
+  
+  function castVote(proposalId: bigint, support: VoteType, reason?: string) {
+    if (reason) {
+      writeContract({
+        address: GOVERNOR_ADDRESS,
+        abi: governorAbi,
+        functionName: 'castVoteWithReason',
+        args: [proposalId, support, reason],
+      })
+    } else {
+      writeContract({
+        address: GOVERNOR_ADDRESS,
+        abi: governorAbi,
+        functionName: 'castVote',
+        args: [proposalId, support],
+      })
+    }
+  }
+  
+  return { castVote, hash, isConfirming }
+}
+```
+
+#### Get Proposal State
+
+```typescript
+// hooks/useProposalState.ts
+import { useReadContract } from 'wagmi'
+import { governorAbi } from '@/abi/governance'
+import { ProposalState } from '@/types/governance'
+
+const GOVERNOR_ADDRESS = '0x...'
+
+export function useProposalState(proposalId: bigint) {
+  const { data: state, ...rest } = useReadContract({
+    address: GOVERNOR_ADDRESS,
+    abi: governorAbi,
+    functionName: 'state',
+    args: [proposalId],
+  })
+  
+  return {
+    state: state as ProposalState,
+    isPending: state === undefined,
+    ...rest,
+  }
+}
+```
+
+#### Get Proposal Votes
+
+```typescript
+// hooks/useProposalVotes.ts
+import { useReadContract } from 'wagmi'
+import { governorAbi } from '@/abi/governance'
+
+const GOVERNOR_ADDRESS = '0x...'
+
+export function useProposalVotes(proposalId: bigint) {
+  const { data: votes, ...rest } = useReadContract({
+    address: GOVERNOR_ADDRESS,
+    abi: governorAbi,
+    functionName: 'proposalVotes',
+    args: [proposalId],
+  })
+  
+  return {
+    forVotes: votes?.[0] ?? 0n,
+    againstVotes: votes?.[1] ?? 0n,
+    abstainVotes: votes?.[2] ?? 0n,
+    ...rest,
+  }
+}
+```
+
+---
+
+## 🎨 UI Components
+
+### Proposal Card
+
+```typescript
+// components/ProposalCard.tsx
+'use client'
+
+import { useProposalState } from '@/hooks/useProposalState'
+import { useProposalVotes } from '@/hooks/useProposalVotes'
+import { useCastVote } from '@/hooks/useCastVote'
+import { ProposalState, VoteType } from '@/types/governance'
+import { formatUnits } from 'viem'
+
+interface Proposal {
+  id: bigint
+  description: string
+  targets: string[]
+}
+
+export function ProposalCard({ proposal }: { proposal: Proposal }) {
+  const { state } = useProposalState(proposal.id)
+  const { forVotes, againstVotes, abstainVotes } = useProposalVotes(proposal.id)
+  const { castVote, isConfirming } = useCastVote()
+  
+  const totalVotes = forVotes + againstVotes + abstainVotes
+  const forPercentage = totalVotes > 0 
+    => Number(forVotes) / Number(totalVotes) * 100 
+    : 0
+  
+  const stateLabels: Record<ProposalState, string> = {
+    [ProposalState.Pending]: 'Pending',
+    [ProposalState.Active]: 'Voting',
+    [ProposalState.Canceled]: 'Canceled',
+    [ProposalState.Defeated]: 'Defeated',
+    [ProposalState.Succeeded]: 'Succeeded',
+    [ProposalState.Queued]: 'Queued',
+    [ProposalState.Expired]: 'Expired',
+    [ProposalState.Executed]: 'Executed',
+  }
+  
+  return (
+    <div className="proposal-card">
+      <div className="header">
+        <h3>Proposal #{proposal.id.toString()}</h3>
+        <span className={`status ${stateLabels[state]?.toLowerCase()}`}>
+          {stateLabels[state]}
+        </span>
+      </div>
+      
+      <p className="description">{proposal.description}</p>
+      
+      <div className="voting-progress">
+        <div className="progress-bar">
+          <div 
+            className="for" 
+            style={{ width: `${forPercentage}%` }}
+          />
+        </div>
+        
+        <div className="votes">
+          <span>For: {formatUnits(forVotes, 18)}</span>
+          <span>Against: {formatUnits(againstVotes, 18)}</span>
+          <span>Abstain: {formatUnits(abstainVotes, 18)}</span>
+        </div>
+      </div>
+      
+      {state === ProposalState.Active && (
+        <div className="vote-buttons">
+          <button 
+            onClick={() => castVote(proposal.id, VoteType.For)}
+            disabled={isConfirming}
+          >
+            Vote For
+          </button>
+          <button 
+            onClick={() => castVote(proposal.id, VoteType.Against)}
+            disabled={isConfirming}
+          >
+            Vote Against
+          </button>
+          <button 
+            onClick={() => castVote(proposal.id, VoteType.Abstain)}
+            disabled={isConfirming}
+          >
+            Abstain
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+```
+
+### Create Proposal Form
+
+```typescript
+// components/CreateProposalForm.tsx
+'use client'
+
+import { useState } from 'react'
+import { useCreateProposal } from '@/hooks/useCreateProposal'
+import { useAccount } from 'wagmi'
+
+export function CreateProposalForm() {
+  const [description, setDescription] = useState('')
+  const [target, setTarget] = useState('')
+  const [value, setValue] = useState('0')
+  const [calldata, setCalldata] = useState('')
+  
+  const { createProposal, isPending, isConfirming, isSuccess } = useCreateProposal()
+  const { address } = useAccount()
+  
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    createProposal({
+      targets: [target],
+      values: [BigInt(value)],
+      signatures: [''],
+      calldatas: [calldata || '0x'],
+      description,
+    })
+  }
+  
+  if (!address) {
+    return <p>Connect wallet to create proposal</p>
+  }
+  
+  return (
+    <form onSubmit={handleSubmit} className="proposal-form">
+      <h2>Create New Proposal</h2>
+      
+      <div className="form-group">
+        <label>Description</label>
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Describe your proposal..."
+          required
+        />
+      </div>
+      
+      <div className="form-group">
+        <label>Target Address</label>
+        <input
+          type="text"
+          value={target}
+          onChange={(e) => setTarget(e.target.value)}
+          placeholder="0x..."
+          required
+        />
+      </div>
+      
+      <div className="form-group">
+        <label>Value (ETH)</label>
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="0"
+        />
+      </div>
+      
+      <div className="form-group">
+        <label>Calldata (optional)</label>
+        <input
+          type="text"
+          value={calldata}
+          onChange={(e) => setCalldata(e.target.value)}
+          placeholder="0x..."
+        />
+      </div>
+      
+      <button type="submit" disabled={isPending || isConfirming}>
+        {isPending ? 'Signing...' : isConfirming ? 'Confirming...' : 'Create Proposal'}
+      </button>
+      
+      {isSuccess && <p>Proposal created successfully!</p>}
+    </form>
+  )
+}
+```
+
+---
+
+## ✅ Checklist
+
+- [ ] Setup Foundry project dengan OpenZeppelin Governor
+- [ ] Coding GovernanceToken.sol (ERC20Votes)
+- [ ] Coding GovernorContract.sol dengan parameter governance
+- [ ] Konfigurasi votingDelay, votingPeriod, quorum
+- [ ] Write unit tests
+- [ ] Deploy ke Anvil/testnet
+- [ ] Mint tokens ke test accounts
+- [ ] Setup Next.js frontend
+- [ ] Setup wagmi configuration
+- [ ] Implementasi Create Proposal form
+- [ ] Implementasi Cast Vote (For/Against/Abstain)
+- [ ] Implementasi proposal state tracking
+- [ ] Display proposal list dengan progress bar
+- [ ] Implementasi Execute proposal function
+- [ ] Testing lengkap workflow (create → vote → execute)
+
+---
+
+## 🎓 Kesimpulan
+
+Selamat! Anda telah menyelesaikan semua 4 project Web3:
+
+1. **Todo List** - Memahami dasar read/write operations
+2. **NFT Gallery** - Memahami ERC-721 dan access gating
+3. **DeFi Vault** - Memahami interaksi kontrak dan BigInt
+4. **DAO Voting** - Memahami governance kompleks
+
+ Dengan menyelesaikan project-project ini, Anda memiliki pemahaman yang kuat untuk membangun aplikasi Web3 yang lebih kompleks.

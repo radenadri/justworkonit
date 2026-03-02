@@ -1,0 +1,259 @@
+# 11. Pengantar dynamic programming
+
+## Tujuan
+- Paham apa itu dynamic programming (DP) dan kapan dipakai.
+- Bisa mengenali 2 ciri khas DP: overlapping subproblems + optimal substructure.
+- Mengerti konsep state, transition, dan base case.
+- Bisa membedakan top-down (rekursi + memo) vs bottom-up (iteratif).
+- Melihat contoh nyata peningkatan kompleksitas (Fibonacci: eksponensial -> O(n)).
+
+## Konsep Inti
+
+### Template terkait
+- DP top-down memo: `/js-dsa/12-code-templates#tpl-dp-top-down-memo`
+- DP bottom-up tab: `/js-dsa/12-code-templates#tpl-dp-bottom-up-tab`
+
+### Visualisasi (Mermaid)
+
+```mermaid
+flowchart LR
+  A[dp[i-2]] --> C[dp[i] = max(...)];
+  B[dp[i-1]] --> C;
+  V[val[i]] --> D[dp[i-2] + val[i]];
+  A --> D;
+  D --> C;
+```
+
+### Apa itu DP (dan intuisi sederhananya)
+Dynamic Programming (DP) adalah teknik untuk menyelesaikan masalah dengan cara:
+- memecahnya jadi sub-masalah kecil,
+- menyimpan hasil sub-masalah yang sama supaya tidak dihitung berulang,
+- lalu menggabungkannya untuk membentuk jawaban final.
+
+Ada 2 gaya utama:
+- **Memoization (top-down)**: kita pakai rekursi seperti biasa, tapi setiap hasil `f(x)` kita simpan di cache (memo). Jika nanti diminta lagi, ambil dari cache.
+- **Tabulation (bottom-up)**: kita bikin tabel `dp[...]` dari kasus paling kecil (base case) lalu mengisi sampai ukuran yang kita butuhkan.
+
+### Kapan DP cocok? (cara mengenali)
+DP biasanya cocok kalau ada **dua ciri ini**:
+
+1) **Overlapping subproblems**
+- Sub-masalah yang sama muncul berulang kali.
+- Contoh klasik: `fib(6)` butuh `fib(5)` dan `fib(4)`. Tapi `fib(5)` juga butuh `fib(4)` lagi. Ini “tumpang tindih”.
+
+2) **Optimal substructure**
+- Solusi optimal untuk masalah besar bisa dibentuk dari solusi optimal sub-masalahnya.
+- Contoh: kalau keputusan terbaik untuk hari ke-`i` bergantung pada keputusan terbaik sampai hari ke-`i-1` atau `i-2`, biasanya DP masuk.
+
+### Tiga komponen wajib: state, transition, base case
+Kalau kamu bingung mulai dari mana, pakai template ini:
+
+1) **State**
+- “Apa yang mau aku simpan?”
+- Biasanya `dp[i]` atau `dp[i][j]`.
+- Contoh: `dp[i]` = jawaban terbaik untuk prefix sampai indeks `i`.
+
+2) **Transition (relasi perpindahan)**
+- “Gimana cara membangun `dp[i]` dari state yang lebih kecil?”
+- Contoh: untuk array input `nums`, `dp[i] = max(dp[i - 1], dp[i - 2] + nums[i])`.
+
+3) **Base case**
+- “Kasus terkecilnya apa?”
+- Contoh: `dp[0]`, `dp[1]` harus jelas supaya rumus bisa jalan.
+
+### Top-down vs bottom-up
+Keduanya sama-sama DP, bedanya gaya:
+
+**Top-down (rekursi + memo)**
+- Enak saat relasi gampang ditulis rekursif.
+- Menghitung hanya state yang dibutuhkan.
+- Risiko: *recursion depth* (stack overflow) kalau `n` besar.
+
+**Bottom-up (iteratif + tabel)**
+- Biasanya lebih aman untuk `n` besar (tidak pakai stack rekursi).
+- Lebih mudah mengontrol memory (kadang bisa dioptimalkan jadi O(1)).
+
+### Contoh peningkatan kompleksitas: Fibonacci
+Asumsikan `n` adalah bilangan bulat `>= 0`.
+
+Fibonacci naif dengan rekursi:
+- `fib(n) = fib(n-1) + fib(n-2)`
+- Kalau tanpa cache, banyak perhitungan berulang.
+
+Perbandingan kompleksitas (lebih eksplisit):
+- **Naif (rekursi tanpa cache)**: Time `O(2^n)` (eksponensial), Space `O(n)` (call stack).
+- **Top-down + memo (`fibMemo`)**: Time `O(n)`, Space `O(n)` untuk memo + `O(n)` call stack.
+- **Bottom-up + tabel (`fibTab`)**: Time `O(n)`, Space `O(n)` untuk array `dp`.
+  - Catatan: untuk Fibonacci, space bisa dioptimalkan jadi `O(1)` dengan hanya menyimpan 2 nilai terakhir.
+
+Memo vs tabel:
+- `fibMemo` (memoization) menghitung state saat dibutuhkan (lazy) lewat rekursi.
+- `fibTab` (tabulation) mengisi state dari kecil ke besar (eager) tanpa recursion stack.
+
+### Pitfall yang sering terjadi (dan cara menghindari)
+- **State salah**: `dp` yang disimpan kurang informasi atau kebanyakan informasi. Coba tulis ulang definisi `dp[...]` dengan satu kalimat yang tegas.
+- **Base case hilang/keliru**: hasil jadi `undefined` atau loop/rekursi tidak pernah berhenti.
+- **Memo key bermasalah / berubah-ubah (mutation of memo keys)**: misal pakai object sebagai key di object biasa, atau key dibentuk dari array lalu isinya berubah. Pakai `Map` dan key string yang stabil (mis. `${i},${j}`) kalau state multi-dimensi.
+- **Memory terlalu besar**: state space meledak (mis. `dp[n][sum]` dengan `sum` besar). Cari apakah bisa dioptimalkan (rolling array, atau hanya simpan beberapa state terakhir).
+- **Recursion depth**: top-down bisa stack overflow di JavaScript untuk `n` besar. Untuk input besar, pilih bottom-up.
+
+## Contoh Cepat
+```js
+// Fibonacci - Top-down (rekursi + memoization)
+function fibMemo(n, memo = new Map()) {
+  if (n <= 1) return n;
+  if (memo.has(n)) return memo.get(n);
+  const val = fibMemo(n - 1, memo) + fibMemo(n - 2, memo);
+  memo.set(n, val);
+  return val;
+}
+
+console.log(fibMemo(0)); // 0
+console.log(fibMemo(1)); // 1
+console.log(fibMemo(10)); // 55
+```
+
+```js
+// Fibonacci - Bottom-up (iteratif + tabulation)
+function fibTab(n) {
+  if (n <= 1) return n;
+  const dp = Array(n + 1);
+  dp[0] = 0;
+  dp[1] = 1;
+  for (let i = 2; i <= n; i++) dp[i] = dp[i - 1] + dp[i - 2];
+  return dp[n];
+}
+
+console.log(fibTab(0)); // 0
+console.log(fibTab(1)); // 1
+console.log(fibTab(10)); // 55
+```
+
+## Studi Kasus (Sehari-hari)
+
+**Pernyataan masalah**
+Kamu ingin menjaga energi selama seminggu. Setiap hari ada satu aktivitas istirahat (mis. power nap, yoga ringan, atau jalan santai) yang memberi tambahan energi tertentu. Tapi kamu **tidak boleh memilih aktivitas istirahat di dua hari berturut-turut** (karena jadwal padat atau aturan program).
+
+Diberikan array `energiPerHari`, cari **total energi maksimum** yang bisa kamu dapatkan.
+
+Asumsikan setiap `energiPerHari[i]` bernilai `>= 0`.
+
+**Contoh input**
+```js
+const energiPerHari = [5, 1, 2, 10, 6, 2];
+```
+
+**Output yang diharapkan**
+```txt
+17
+```
+
+Salah satu pilihan yang mencapai 17 adalah memilih hari ke-0 (5), ke-3 (10), dan ke-5 (2).
+
+### Pendekatan DP (state/transition)
+Kita definisikan:
+- **State**: `dp[i]` = energi maksimum yang bisa didapat dari hari `0..i`.
+- **Transition**: untuk hari `i`, ada 2 pilihan:
+  - **Skip** hari `i`: total = `dp[i - 1]`
+  - **Ambil** hari `i`: total = `dp[i - 2] + energiPerHari[i]` (karena tidak boleh ambil `i-1`)
+  - Jadi: `dp[i] = max(dp[i - 1], dp[i - 2] + energiPerHari[i])`
+- **Base case**:
+  - `dp[0] = energiPerHari[0]`
+  - `dp[1] = max(energiPerHari[0], energiPerHari[1])`
+
+Mini walkthrough (pakai contoh di atas):
+- `energiPerHari = [5, 1, 2, 10, 6, 2]`
+- `dp[0..5] = [5, 5, 7, 15, 15, 17]`
+- `dp[3] = max(dp[2]=7, dp[1]=5 + 10) = 15`
+- `dp[5] = max(dp[4]=15, dp[3]=15 + 2) = 17`
+
+Karena `dp[i]` hanya butuh `dp[i-1]` dan `dp[i-2]`, kita bisa hemat memori menjadi O(1) dengan dua variabel.
+
+### Implementasi JavaScript
+```js
+function maxEnergiTanpaBerturut(energiPerHari) {
+  const n = energiPerHari.length;
+  if (n === 0) return 0;
+  if (n === 1) return energiPerHari[0];
+
+  let prev2 = energiPerHari[0];
+  let prev1 = Math.max(energiPerHari[0], energiPerHari[1]);
+
+  for (let i = 2; i < n; i++) {
+    const ambil = prev2 + energiPerHari[i];
+    const skip = prev1;
+    const curr = Math.max(skip, ambil);
+    prev2 = prev1;
+    prev1 = curr;
+  }
+
+  return prev1;
+}
+
+console.log(maxEnergiTanpaBerturut([5, 1, 2, 10, 6, 2])); // 17
+console.log(maxEnergiTanpaBerturut([])); // 0
+console.log(maxEnergiTanpaBerturut([7])); // 7
+```
+
+Kompleksitas waktu: O(n)
+
+Kompleksitas ruang: O(1)
+
+## Latihan
+1. Buat `fib(n)` versi top-down dengan memoization memakai `Map`.
+
+<details>
+  <summary>Petunjuk</summary>
+
+  - Definisikan base case untuk `n <= 1`.
+  - Cek dulu `memo.has(n)` sebelum rekursi.
+  - Setelah dapat nilai, simpan dengan `memo.set(n, nilai)`.
+</details>
+
+2. Climbing stairs: ada `n` anak tangga, kamu bisa naik 1 atau 2 langkah. Berapa banyak cara untuk mencapai puncak?
+
+<details>
+  <summary>Petunjuk</summary>
+
+  - Definisikan `dp[i]` = jumlah cara untuk sampai ke tangga `i`.
+  - Transition biasanya `dp[i] = dp[i-1] + dp[i-2]`.
+  - Perhatikan base case untuk `i = 0` dan `i = 1`.
+</details>
+
+3. Min cost: kamu punya array biaya per langkah. Setiap kali naik 1 atau 2 langkah, kamu membayar biaya langkah yang kamu pijak. Cari biaya minimum untuk mencapai akhir.
+
+<details>
+  <summary>Petunjuk</summary>
+
+  - `dp[i]` = biaya minimum untuk sampai ke langkah `i`.
+  - Hati-hati mendefinisikan “akhir”: apakah index terakhir atau “di atas” index terakhir.
+  - Coba tulis 2-3 contoh kecil dan pastikan base case tidak off-by-one.
+</details>
+
+4. Variasi studi kasus: selain nilai maksimum, kembalikan juga indeks hari mana saja yang dipilih.
+
+<details>
+  <summary>Petunjuk</summary>
+
+  - Simpan informasi “pilih/skip” untuk setiap `i` (mis. array `take[i]` boolean) atau simpan `parent` pointer.
+  - Setelah DP selesai, lakukan backtrack dari indeks terakhir.
+  - Pastikan backtrack mengikuti aturan: kalau ambil `i`, lompat ke `i-2`.
+</details>
+
+5. Coin change (minimum koin): diberikan `coins` dan `amount`, cari minimum jumlah koin untuk membentuk `amount` (atau `-1` jika tidak mungkin).
+
+<details>
+  <summary>Petunjuk</summary>
+
+  - `dp[x]` = minimum koin untuk membentuk jumlah `x`.
+  - Inisialisasi `dp[0] = 0` dan sisanya `Infinity`.
+  - Untuk setiap `x`, coba semua koin `c`: jika `x - c >= 0`, update `dp[x] = min(dp[x], dp[x-c] + 1)`.
+</details>
+
+## Ringkasan
+
+- DP = cara menyelesaikan masalah dengan memecah jadi sub-masalah dan menyimpan hasilnya supaya tidak dihitung ulang.
+- Dua tanda kuat DP: **overlapping subproblems** dan **optimal substructure**.
+- Selalu mulai dari definisi **state**, rumus **transition**, dan **base case**.
+- Top-down (rekursi + memo) nyaman, tapi bisa kena recursion depth; bottom-up (iteratif) biasanya lebih aman dan bisa dioptimalkan memorinya.
+- Banyak bug DP datang dari definisi state yang kabur, base case yang salah, atau ukuran state yang terlalu besar.
