@@ -133,11 +133,10 @@ bun add -d drizzle-kit @types/pg tsx
 We'll also install a few utilities:
 
 ```bash
-bun add lucide-react bcryptjs
-bun add -d @types/bcryptjs
+bun add lucide-react better-auth
 ```
 
-`lucide-react` carries over from the original project for icons. `bcryptjs` is new. The original Inventra used Supabase Auth, so it never needed to hash passwords directly. Since we're building custom auth in Chapter 6, we need it now.
+`lucide-react` carries over from the original project for icons. `better-auth` is our authentication library. The original Inventra delegated auth to Supabase. Since we're replacing it with a standalone solution in Chapter 6, better-auth gives us session-based auth with a Drizzle adapter, RBAC via plugins, and zero vendor lock-in—all without writing custom JWT or password hashing code.
 
 Here's what `package.json` should look like after all installs:
 
@@ -157,7 +156,7 @@ Here's what `package.json` should look like after all installs:
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
-    "bcryptjs": "^2.4.3",
+    "better-auth": "^1.2.0",
     "drizzle-orm": "^0.44.0",
     "ioredis": "^5.6.0",
     "lucide-react": "^0.487.0",
@@ -169,7 +168,6 @@ Here's what `package.json` should look like after all installs:
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.0",
-    "@types/bcryptjs": "^2.4.6",
     "@types/pg": "^8.15.0",
     "drizzle-kit": "^0.31.0",
     "eslint": "^9.0.0",
@@ -236,7 +234,8 @@ DATABASE_URL=postgresql://postgres:postgres@localhost:5432/inventra
 REDIS_URL=redis://localhost:6379
 
 # Auth
-AUTH_SECRET=your-secret-key-here-change-in-production
+BETTER_AUTH_SECRET=your-secret-key-here-min-32-chars-change-in-production
+BETTER_AUTH_URL=http://localhost:3000
 
 # App
 NEXT_PUBLIC_APP_URL=http://localhost:3000
@@ -460,7 +459,6 @@ import { users } from '@/db/schema';
 export const insertUserSchema = createInsertSchema(users, {
   email: z.string().email('Invalid email address'),
   name: z.string().min(2, 'Name must be at least 2 characters'),
-  password_hash: z.string().min(1, 'Password hash is required'),
 });
 
 export const selectUserSchema = createSelectSchema(users);
@@ -523,7 +521,7 @@ Update `next.config.ts` to match our needs:
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ['pg', 'ioredis', 'bcryptjs'],
+  serverExternalPackages: ['pg', 'ioredis'],
   images: {
     remotePatterns: [
       {
@@ -537,7 +535,7 @@ const nextConfig: NextConfig = {
 export default nextConfig;
 ```
 
-`serverExternalPackages` tells Next.js not to bundle `pg`, `ioredis`, and `bcryptjs` into the client-side JavaScript. These are server-only packages that rely on Node.js APIs (TCP sockets, native crypto). Without this setting, the build would fail when Next.js tries to resolve them for client bundles.
+`serverExternalPackages` tells Next.js not to bundle `pg` and `ioredis` into the client-side JavaScript. These are server-only packages that rely on Node.js APIs (TCP sockets). Without this setting, the build would fail when Next.js tries to resolve them for client bundles.
 
 The `images.remotePatterns` configuration carries over from the original Inventra. We're still storing product images in Supabase Storage (for now), so we need to allow image optimization from Supabase URLs.
 
@@ -708,4 +706,4 @@ One thing we skipped: Vitest. Testing comes in Chapter 11, after we have actual 
 
 The skeleton is standing. Database tables exist. UI components are installed. The dev server runs without errors.
 
-Chapter 6 fills in the first real feature: authentication. We'll build a sign-in page with Shadcn form components, validate credentials with Zod, hash passwords with bcryptjs, create sessions, and protect routes with Next.js middleware. The original Inventra delegated all of this to Supabase Auth. We're doing it ourselves.
+Chapter 6 fills in the first real feature: authentication. We'll set up better-auth with its Drizzle adapter, configure the admin plugin for role-based access, build a sign-in page with Shadcn form components, validate credentials with Zod, and protect routes with Next.js middleware. The original Inventra delegated all of this to Supabase Auth. We're replacing it with a self-hosted solution that gives us full control without writing low-level session or password hashing code.

@@ -38,20 +38,20 @@ This stack has clear strengths. Server Actions simplify the data layer. Strict T
 
 We're keeping what works and replacing what doesn't. Here's the comparison:
 
-| Concern         | Current                          | New                                 | Why                                                                    |
-| --------------- | -------------------------------- | ----------------------------------- | ---------------------------------------------------------------------- |
-| Runtime         | Node.js + npm                    | Bun                                 | Faster installs, faster scripts, native TypeScript execution           |
-| Framework       | Next.js 16 App Router            | Next.js 16 App Router               | No change needed. App Router with Server Actions is solid              |
-| UI Library      | React 19                         | React 19                            | Same                                                                   |
-| Language        | TypeScript 5 strict              | TypeScript 5 strict                 | Same                                                                   |
-| Styling         | Tailwind CSS v4                  | Tailwind CSS v4                     | Same                                                                   |
-| Components      | Custom hand-built                | Shadcn UI                           | Pre-built, accessible, customizable. Owned in your codebase            |
-| Database Access | Supabase client (direct queries) | Drizzle ORM + PostgreSQL            | Type-safe queries, migrations as code, no vendor lock-in               |
-| Auth            | Supabase Auth                    | Custom auth with session management | Full control over session handling, token rotation, role logic         |
-| Validation      | None                             | Zod 4                               | Runtime schema validation on every Server Action input                 |
-| Caching         | None                             | Redis                               | Dashboard queries cached, stock lookups cached, real-time invalidation |
-| Testing         | None                             | Vitest                              | Fast, modern test runner with first-class TypeScript support           |
-| Deployment      | Docker + docker-compose          | Docker + docker-compose             | Same setup, updated for Bun and Redis                                  |
+| Concern         | Current                          | New                      | Why                                                                       |
+| --------------- | -------------------------------- | ------------------------ | ------------------------------------------------------------------------- |
+| Runtime         | Node.js + npm                    | Bun                      | Faster installs, faster scripts, native TypeScript execution              |
+| Framework       | Next.js 16 App Router            | Next.js 16 App Router    | No change needed. App Router with Server Actions is solid                 |
+| UI Library      | React 19                         | React 19                 | Same                                                                      |
+| Language        | TypeScript 5 strict              | TypeScript 5 strict      | Same                                                                      |
+| Styling         | Tailwind CSS v4                  | Tailwind CSS v4          | Same                                                                      |
+| Components      | Custom hand-built                | Shadcn UI                | Pre-built, accessible, customizable. Owned in your codebase               |
+| Database Access | Supabase client (direct queries) | Drizzle ORM + PostgreSQL | Type-safe queries, migrations as code, no vendor lock-in                  |
+| Auth            | Supabase Auth                    | better-auth              | Session-based auth with Drizzle adapter, RBAC plugin, zero vendor lock-in |
+| Validation      | None                             | Zod 4                    | Runtime schema validation on every Server Action input                    |
+| Caching         | None                             | Redis                    | Dashboard queries cached, stock lookups cached, real-time invalidation    |
+| Testing         | None                             | Vitest                   | Fast, modern test runner with first-class TypeScript support              |
+| Deployment      | Docker + docker-compose          | Docker + docker-compose  | Same setup, updated for Bun and Redis                                     |
 
 A few decisions deserve extra context.
 

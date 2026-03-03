@@ -161,7 +161,7 @@ import {
   activityLogs,
   warehouses,
 } from '@/db/schema';
-import { getCurrentUser } from '@/lib/auth/session';
+import { getCurrentUser } from '@/lib/auth/get-current-user';
 import { generateTransactionNumber } from '@/lib/utils/transaction-number';
 import { createStockInSchema } from '@/lib/validators/stock-schemas';
 
@@ -396,7 +396,7 @@ import { eq, or, ilike, sql, desc, and } from 'drizzle-orm';
 
 import { db } from '@/db';
 import { transactions, warehouses } from '@/db/schema';
-import { getCurrentUser } from '@/lib/auth/session';
+import { getCurrentUser } from '@/lib/auth/get-current-user';
 
 export interface StockInListItem {
   id: string;
@@ -508,7 +508,7 @@ import {
   activityLogs,
   warehouses,
 } from '@/db/schema';
-import { getCurrentUser } from '@/lib/auth/session';
+import { getCurrentUser } from '@/lib/auth/get-current-user';
 import { updateStockInStatusSchema } from '@/lib/validators/stock-schemas';
 
 // Valid status transitions for stock-in
@@ -769,7 +769,7 @@ import {
   stockReservations,
   activityLogs,
 } from '@/db/schema';
-import { getCurrentUser } from '@/lib/auth/session';
+import { getCurrentUser } from '@/lib/auth/get-current-user';
 import { generateTransactionNumber } from '@/lib/utils/transaction-number';
 import { createStockOutSchema } from '@/lib/validators/stock-schemas';
 
@@ -1090,7 +1090,7 @@ import {
   stockReservations,
   activityLogs,
 } from '@/db/schema';
-import { getCurrentUser } from '@/lib/auth/session';
+import { getCurrentUser } from '@/lib/auth/get-current-user';
 import { updateStockOutStatusSchema } from '@/lib/validators/stock-schemas';
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
@@ -1342,7 +1342,7 @@ import { revalidatePath } from 'next/cache';
 
 import { db } from '@/db';
 import { transactions, stockReservations, productStocks, activityLogs } from '@/db/schema';
-import { getCurrentUser } from '@/lib/auth/session';
+import { getCurrentUser } from '@/lib/auth/get-current-user';
 
 export type DeleteStockOutResult = { success: true } | { success: false; error: string };
 
@@ -1446,7 +1446,7 @@ import { eq, and } from 'drizzle-orm';
 
 import { db } from '@/db';
 import { transactions, transactionLines, warehouses, products, users } from '@/db/schema';
-import { getCurrentUser } from '@/lib/auth/session';
+import { getCurrentUser } from '@/lib/auth/get-current-user';
 
 export interface StockInDetail {
   id: string;

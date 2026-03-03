@@ -16,11 +16,11 @@ Here's what does deserve tests in Inventra:
 
 **Zod schemas.** The `categoryFormSchema` rejects empty names. The `createStockInSchema` requires at least one line item. The `createProductSchema` validates that unit prices aren't negative. These schemas sit between user input and the database. If a schema accidentally passes invalid data, you get a runtime error from PostgreSQL instead of a helpful validation message. Testing schemas is cheap (pure functions, no mocks) and high-value.
 
-**Utility functions.** `generateTransactionNumber` should produce strings in the format `STI-20260304-4827`. `hashPassword` should produce a bcrypt hash that `verifyPassword` can confirm. `slugify` should turn "Electronics & Gadgets" into "electronics-gadgets". Pure functions with clear inputs and outputs. Five minutes to write, catches regressions forever.
+**Utility functions.** `generateTransactionNumber` should produce strings in the format `STI-20260304-4827`. `slugify` should turn "Electronics & Gadgets" into "electronics-gadgets". Pure functions with clear inputs and outputs. Five minutes to write, catches regressions forever.
 
 **Server action business logic.** The stock-in receive action checks warehouse capacity before accepting goods. The stock-out dispatch action verifies available stock (quantity minus reserved). The category delete action refuses if products are assigned. These are the rules that protect data integrity. If a refactor accidentally removes a capacity check, the test catches it before it reaches production.
 
-**Auth utilities.** Session creation and verification. Password hashing round trips. The `getCurrentUser` helper that every server action depends on.
+**Auth utilities.** The `getCurrentUser` helper that every server action depends on. Testing the mock setup ensures server actions correctly reject unauthenticated and unauthorized requests. better-auth handles password hashing and session storage internally — we don't test its internals, we test our integration with it.
 
 What we're not testing: individual Shadcn UI components (they're maintained upstream), CSS styling (visual regression tools do this better), database migration files (Drizzle handles this), or the Next.js middleware (too tightly coupled to the framework's request/response cycle to unit test meaningfully).
 
@@ -97,7 +97,8 @@ The coverage exclusions are deliberate. We skip Shadcn UI components (`src/compo
 import '@testing-library/jest-dom/vitest';
 
 // Set environment variables for tests
-process.env.AUTH_SECRET = 'test-secret-key-at-least-32-characters-long-for-testing';
+process.env.BETTER_AUTH_SECRET = 'test-secret-key-at-least-32-characters-long-for-testing';
+process.env.BETTER_AUTH_URL = 'http://localhost:3000';
 process.env.DATABASE_URL = 'postgresql://postgres:postgres@localhost:5432/inventra_test';
 process.env.REDIS_URL = 'redis://localhost:6379/1';
 process.env.NEXT_PUBLIC_APP_URL = 'http://localhost:3000';
@@ -704,108 +705,76 @@ The product schema tests cover the unitPrice transform — empty strings become 
 // src/lib/__tests__/auth.test.ts
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { hashPassword, verifyPassword } from '@/lib/auth/password';
 
-describe('password hashing', () => {
-  it('produces a bcrypt hash', async () => {
-    const hash = await hashPassword('MySecureP@ssw0rd');
-    expect(hash).toMatch(/^\$2[aby]\$/);
-    expect(hash.length).toBeGreaterThan(50);
-  });
+// Mock better-auth's session retrieval. We don't test better-auth internals
+// (password hashing, session creation, token signing) — that's the library's
+// job. We test OUR integration: does getCurrentUser return the right shape,
+// and does it return null when no session exists?
 
-  it('produces different hashes for the same password', async () => {
-    const hash1 = await hashPassword('SamePassword123');
-    const hash2 = await hashPassword('SamePassword123');
-    expect(hash1).not.toBe(hash2);
-  });
+vi.mock('@/lib/auth', () => ({
+  auth: {
+    api: {
+      getSession: vi.fn(),
+    },
+  },
+}));
 
-  it('verifies correct password', async () => {
-    const password = 'Correct-Horse-Battery-Staple';
-    const hash = await hashPassword(password);
-    const isValid = await verifyPassword(password, hash);
-    expect(isValid).toBe(true);
-  });
+vi.mock('@/db', () => ({
+  db: {},
+}));
 
-  it('rejects wrong password', async () => {
-    const hash = await hashPassword('RightPassword');
-    const isValid = await verifyPassword('WrongPassword', hash);
-    expect(isValid).toBe(false);
-  });
+describe('getCurrentUser', () => {
+  let getSession: ReturnType<typeof vi.fn>;
 
-  it('rejects empty password against valid hash', async () => {
-    const hash = await hashPassword('SomePassword');
-    const isValid = await verifyPassword('', hash);
-    expect(isValid).toBe(false);
-  });
-});
-
-describe('session management', () => {
-  // Session tests need to mock next/headers cookies() function
-  // since createSession and getSession depend on it.
-
-  beforeEach(() => {
+  beforeEach(async () => {
+    vi.clearAllMocks();
     vi.resetModules();
+    const { auth } = await import('@/lib/auth');
+    getSession = auth.api.getSession as ReturnType<typeof vi.fn>;
   });
 
-  it('creates and verifies a JWT token', async () => {
-    const { SignJWT, jwtVerify } = await import('jose');
+  it('returns user data when session is valid', async () => {
+    getSession.mockResolvedValue({
+      session: { id: 'session-1', userId: 'user-1' },
+      user: {
+        id: 'user-1',
+        email: 'admin@inventra.test',
+        name: 'Admin User',
+        role: 'admin',
+      },
+    });
 
-    const secret = new TextEncoder().encode(process.env.AUTH_SECRET!);
-    const payload = {
-      userId: 'user-123',
-      email: 'admin@inventra.test',
-      role: 'admin' as const,
-    };
+    // Re-import to pick up mocks
+    const { getCurrentUser } = await import('@/lib/auth/get-current-user');
+    const user = await getCurrentUser();
 
-    const expiresAt = Math.floor(Date.now() / 1000) + 60 * 60;
-
-    const token = await new SignJWT({ ...payload, expiresAt })
-      .setProtectedHeader({ alg: 'HS256' })
-      .setIssuedAt()
-      .setExpirationTime(expiresAt)
-      .sign(secret);
-
-    expect(token).toBeTruthy();
-    expect(token.split('.')).toHaveLength(3); // JWT has 3 parts
-
-    const { payload: decoded } = await jwtVerify(token, secret);
-    expect(decoded.userId).toBe('user-123');
-    expect(decoded.email).toBe('admin@inventra.test');
-    expect(decoded.role).toBe('admin');
+    expect(user).toBeTruthy();
+    expect(user?.id).toBe('user-1');
+    expect(user?.email).toBe('admin@inventra.test');
+    expect(user?.role).toBe('admin');
   });
 
-  it('rejects a token signed with wrong secret', async () => {
-    const { SignJWT, jwtVerify } = await import('jose');
+  it('returns null when no session exists', async () => {
+    getSession.mockResolvedValue(null);
 
-    const correctSecret = new TextEncoder().encode('correct-secret-32-characters-long-here');
-    const wrongSecret = new TextEncoder().encode('wrong-secret-also-32-characters-long!');
+    const { getCurrentUser } = await import('@/lib/auth/get-current-user');
+    const user = await getCurrentUser();
 
-    const token = await new SignJWT({ userId: 'user-123' })
-      .setProtectedHeader({ alg: 'HS256' })
-      .setExpirationTime('1h')
-      .sign(correctSecret);
-
-    await expect(jwtVerify(token, wrongSecret)).rejects.toThrow();
+    expect(user).toBeNull();
   });
 
-  it('rejects an expired token', async () => {
-    const { SignJWT, jwtVerify } = await import('jose');
+  it('returns null when getSession throws', async () => {
+    getSession.mockRejectedValue(new Error('Session expired'));
 
-    const secret = new TextEncoder().encode(process.env.AUTH_SECRET!);
+    const { getCurrentUser } = await import('@/lib/auth/get-current-user');
+    const user = await getCurrentUser();
 
-    const token = await new SignJWT({ userId: 'user-123' })
-      .setProtectedHeader({ alg: 'HS256' })
-      .setExpirationTime(Math.floor(Date.now() / 1000) - 3600) // expired 1 hour ago
-      .sign(secret);
-
-    await expect(jwtVerify(token, secret)).rejects.toThrow();
+    expect(user).toBeNull();
   });
 });
 ```
 
-The password tests verify round-trip behavior. Hash a password, verify it matches. Hash the same password twice, confirm the hashes differ (because bcrypt generates random salts). These tests run in about 600ms because bcrypt with cost factor 12 is deliberately slow — that's the point. If tests feel sluggish, don't reduce the cost factor in the test. The production code uses 12, so the test should too.
-
-Session tests verify JWT mechanics directly. We import `jose` and test the signing/verification flow without touching the `createSession`/`getSession` wrappers. Those wrappers depend on `next/headers` which requires a Next.js request context. Testing the crypto layer directly is more valuable and simpler to set up.
+We're testing our `getCurrentUser` wrapper, not better-auth's internals. better-auth handles password hashing (using scrypt by default), session token signing, and cookie management. Those are covered by the library's own test suite. What we need to verify is that our helper correctly extracts user data from the session response and gracefully returns `null` on failures. Every server action in the application depends on this function returning the right shape or `null`.
 
 ### Cache Utility Tests
 
@@ -1095,7 +1064,7 @@ vi.mock('next/cache', () => ({
   revalidatePath: vi.fn(),
 }));
 
-vi.mock('@/lib/auth/session', () => ({
+vi.mock('@/lib/auth/get-current-user', () => ({
   getCurrentUser: vi.fn(),
 }));
 
@@ -1141,7 +1110,7 @@ describe('stock-in actions', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
-    const authMod = await import('@/lib/auth/session');
+    const authMod = await import('@/lib/auth/get-current-user');
     getCurrentUser = authMod.getCurrentUser as ReturnType<typeof vi.fn>;
   });
 
@@ -1234,7 +1203,7 @@ vi.mock('next/cache', () => ({
   revalidatePath: vi.fn(),
 }));
 
-vi.mock('@/lib/auth/session', () => ({
+vi.mock('@/lib/auth/get-current-user', () => ({
   getCurrentUser: vi.fn(),
 }));
 
@@ -1281,7 +1250,7 @@ describe('stock-out actions', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
-    const authMod = await import('@/lib/auth/session');
+    const authMod = await import('@/lib/auth/get-current-user');
     getCurrentUser = authMod.getCurrentUser as ReturnType<typeof vi.fn>;
   });
 
@@ -1510,7 +1479,7 @@ src/
 │       └── category-table.test.tsx           # Component rendering
 └── lib/
     └── __tests__/
-        ├── auth.test.ts                      # Password + session tests
+        ├── auth.test.ts                      # getCurrentUser integration tests
         └── cache.test.ts                     # Redis mock tests
 ```
 
@@ -1534,7 +1503,7 @@ bunx vitest run src/app/dashboard/categories/__tests__/schema.test.ts
 bunx vitest run --testNamePattern="rejects empty name"
 ```
 
-The full suite should complete in under five seconds. Schema tests run in milliseconds. Auth tests take longer because of bcrypt hashing. Integration tests with mocked databases are fast since no actual I/O happens. Component tests render in happy-dom, which is faster than jsdom by a wide margin.
+The full suite should complete in under five seconds. Schema tests run in milliseconds. Auth tests are fast since we mock better-auth's session API. Integration tests with mocked databases are fast since no actual I/O happens. Component tests render in happy-dom, which is faster than jsdom by a wide margin.
 
 Watch mode is where testing pays off during development. Change a Zod schema? The schema tests re-run instantly. Modify a server action's validation logic? The action tests light up. This feedback loop catches bugs at the moment you introduce them, not after you've moved on to the next feature and forgotten the context.
 
@@ -1550,8 +1519,8 @@ A testing strategy is as much about what you skip as what you cover. Here's what
 
 **Database migration tests.** Drizzle Kit generates migrations and applies them. Testing that `CREATE TABLE` works is testing PostgreSQL, not our code. If a migration has a bug, it fails when you run it. The migration itself is the test.
 
-**Middleware tests.** The auth middleware reads a cookie, verifies a JWT, and redirects. Testing it requires mocking the entire `NextRequest`/`NextResponse` API surface, which is brittle and changes between Next.js versions. The middleware is twelve lines of code. Read it. If it looks right, it probably is.
+**Middleware tests.** The auth middleware checks for a session cookie and verifies it via better-auth's session API, then redirects accordingly. Testing it requires mocking the entire `NextRequest`/`NextResponse` API surface, which is brittle and changes between Next.js versions. The middleware is twelve lines of code. Read it. If it looks right, it probably is.
 
-The pattern is clear: we test our business logic, not the framework's plumbing. Zod schemas are ours. Server action decision trees are ours. Password hashing is ours. JWT signing is ours. The Next.js rendering pipeline, the Drizzle SQL generation, the PostgreSQL query executor — those are someone else's responsibility, and they already have tests.
+The pattern is clear: we test our business logic, not the framework's plumbing. Zod schemas are ours. Server action decision trees are ours. The `getCurrentUser` wrapper is ours. The Next.js rendering pipeline, the Drizzle SQL generation, the PostgreSQL query executor, better-auth's password hashing and session management — those are someone else's responsibility, and they already have tests.
 
 Seventeen test files. Under five seconds. Every critical business rule covered. That's the target. Not 100% coverage — but 100% of the coverage that prevents production incidents.

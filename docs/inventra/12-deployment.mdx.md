@@ -113,7 +113,7 @@ import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
   output: 'standalone',
-  serverExternalPackages: ['pg', 'ioredis', 'bcryptjs'],
+  serverExternalPackages: ['pg', 'ioredis'],
   images: {
     remotePatterns: [
       {
@@ -207,7 +207,8 @@ services:
     environment:
       DATABASE_URL: postgresql://${DB_USER:-inventra}:${DB_PASSWORD}@postgres:5432/inventra
       REDIS_URL: redis://redis:6379
-      AUTH_SECRET: ${AUTH_SECRET:?Auth secret is required}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Auth secret is required}
+      BETTER_AUTH_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
       UPLOAD_DIR: /app/uploads
     volumes:
@@ -238,7 +239,7 @@ A few design decisions here deserve explanation.
 
 **Redis uses LRU eviction.** The `--maxmemory 128mb --maxmemory-policy allkeys-lru` flags cap memory usage and evict the least-recently-used keys when the limit is reached. Our cache is designed for this — every cached value can be regenerated from PostgreSQL. Losing a cache entry means a slightly slower query, not data loss.
 
-**Environment variables use `${VAR:?error}` syntax.** The `:?` modifier causes Compose to fail with an error message if the variable is unset. `DB_PASSWORD` and `AUTH_SECRET` must be provided. No accidentally running production with empty passwords.
+**Environment variables use `${VAR:?error}` syntax.** The `:?` modifier causes Compose to fail with an error message if the variable is unset. `DB_PASSWORD` and `BETTER_AUTH_SECRET` must be provided. No accidentally running production with empty passwords.
 
 For local development, the `docker-compose.dev.yml` from Chapter 5 is still the right choice — it runs only PostgreSQL and Redis without the app or migration containers, since you're running `bun --bun run dev` directly on your machine.
 
@@ -283,8 +284,10 @@ DB_PASSWORD=changeme
 REDIS_URL=redis://localhost:6379
 
 # ---- Authentication ----
-# JWT signing secret — generate with: openssl rand -base64 32
-AUTH_SECRET=generate-a-real-secret-at-least-32-characters
+# better-auth signing secret — generate with: openssl rand -base64 32
+BETTER_AUTH_SECRET=generate-a-real-secret-at-least-32-characters
+# better-auth needs to know the app URL for callbacks and redirects
+BETTER_AUTH_URL=http://localhost:3000
 
 # ---- Application ----
 # Public URL of the application (used for redirects, CORS, cookies)
@@ -298,7 +301,7 @@ UPLOAD_DIR=./uploads
 
 For production, never commit a `.env` file. Pass variables through your deployment platform's secrets management: Docker Compose reads from the shell environment, Vercel has its dashboard, and CI/CD pipelines inject them as encrypted secrets.
 
-Generate `AUTH_SECRET` with `openssl rand -base64 32`. Don't use a passphrase you'll remember. It should be random, long, and treated as a secret no human ever types manually.
+Generate `BETTER_AUTH_SECRET` with `openssl rand -base64 32`. Don't use a passphrase you'll remember. It should be random, long, and treated as a secret no human ever types manually.
 
 ## Database Migrations in Production
 
@@ -313,31 +316,32 @@ For rollbacks, Drizzle doesn't generate down migrations automatically. If you ne
 ```typescript
 // src/db/seed-admin.ts
 
-import db from '@/db';
-import { users } from '@/db/schema';
-import bcrypt from 'bcryptjs';
+import { auth } from '@/lib/auth';
 
 async function seedAdmin() {
   const email = process.env.ADMIN_EMAIL ?? 'admin@inventra.app';
   const password = process.env.ADMIN_PASSWORD ?? 'changeme';
+  const name = 'Admin';
 
-  const existing = await db.query.users.findFirst({
-    where: (u, { eq }) => eq(u.email, email),
+  // Check if admin already exists via the database
+  const existingUser = await auth.api.listUsers({
+    query: { searchField: 'email', searchValue: email },
   });
 
-  if (existing) {
+  if (existingUser.users.length > 0) {
     console.log(`Admin user ${email} already exists. Skipping.`);
     return;
   }
 
-  const passwordHash = await bcrypt.hash(password, 12);
-
-  await db.insert(users).values({
-    name: 'Admin',
-    email,
-    passwordHash,
-    role: 'admin',
-    isActive: true,
+  // Create user through better-auth — this handles password hashing
+  // and creates both the user record and the credential account record
+  await auth.api.createUser({
+    body: {
+      name,
+      email,
+      password,
+      role: 'admin',
+    },
   });
 
   console.log(`Admin user created: ${email}`);
@@ -351,7 +355,7 @@ seedAdmin()
   });
 ```
 
-Run it after the first migration: `bun run src/db/seed-admin.ts`. Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` as environment variables — don't deploy with the defaults.
+Run it after the first migration: `bun run src/db/seed-admin.ts`. Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` as environment variables — don't deploy with the defaults. The `auth.api.createUser` call handles password hashing internally using better-auth's configured algorithm (scrypt by default).
 
 ## Reverse Proxy with Nginx
 
@@ -575,9 +579,9 @@ export const redis = new Redis({
 });
 ```
 
-**Environment variables** go in the Vercel dashboard under Project Settings > Environment Variables. Set `DATABASE_URL`, `AUTH_SECRET`, `NEXT_PUBLIC_APP_URL`, and the Upstash credentials. Mark server-only variables (everything except `NEXT_PUBLIC_*`) as available only in "Production" and "Preview" environments.
+**Environment variables** go in the Vercel dashboard under Project Settings > Environment Variables. Set `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `NEXT_PUBLIC_APP_URL`, and the Upstash credentials. Mark server-only variables (everything except `NEXT_PUBLIC_*`) as available only in "Production" and "Preview" environments.
 
-**Middleware compatibility.** Our auth middleware uses `jose` for JWT verification, which runs on the Edge Runtime without issues. If your middleware imported `pg` or `bcryptjs`, it would fail — but ours doesn't. The middleware only reads cookies and verifies JWT signatures, both of which work at the edge.
+**Middleware compatibility.** Our auth middleware checks for an active session by calling better-auth's session API, which runs entirely on the server side. The middleware reads cookies and makes a lightweight session validation request — no heavy dependencies like `pg` needed in the middleware layer. This keeps the middleware fast and compatible with edge deployments if needed.
 
 No `vercel.json` is needed unless you want custom rewrites or headers beyond what `next.config.ts` provides. For most deployments, connecting your GitHub repository to Vercel and setting environment variables is the entire process.
 
@@ -585,7 +589,7 @@ No `vercel.json` is needed unless you want custom rewrites or headers beyond wha
 
 Before you push to production for the first time:
 
-1. Generate a strong `AUTH_SECRET` with `openssl rand -base64 32`
+1. Generate a strong `BETTER_AUTH_SECRET` with `openssl rand -base64 32`
 2. Set a real `DB_PASSWORD` — not the development default
 3. Verify `NEXT_PUBLIC_APP_URL` matches your production domain
 4. Run migrations: `docker compose up migrate`

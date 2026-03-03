@@ -129,7 +129,7 @@ import { db } from '@/db';
 import { products, productStocks } from '@/db/schema';
 import { categories } from '@/db/schema';
 import { warehouses } from '@/db/schema';
-import { getAuthUser } from '@/lib/auth';
+import { getCurrentUser } from '@/lib/auth/get-current-user';
 import { createProductSchema, updateProductSchema, productFiltersSchema } from './schema';
 import type { CreateProductInput, ProductFilters } from './schema';
 
@@ -149,7 +149,7 @@ type ActionResult<T = void> = { success: true; data: T } | { success: false; err
 // ── Get Products (paginated, filtered) ───────────────────────
 
 export async function getProducts(rawFilters: Partial<ProductFilters>) {
-  const user = await getAuthUser();
+  const user = await getCurrentUser();
   if (!user) return { data: [], total: 0 };
 
   const filters = productFiltersSchema.parse(rawFilters);
@@ -231,7 +231,7 @@ Here's the rest of the actions file:
 // ── Get Single Product ───────────────────────────────────────
 
 export async function getProduct(id: string) {
-  const user = await getAuthUser();
+  const user = await getCurrentUser();
   if (!user) return null;
 
   return db.query.products.findFirst({
@@ -253,7 +253,7 @@ export async function createProduct(
   input: CreateProductInput,
   imageUrls: string[],
 ): Promise<ActionResult<{ id: string }>> {
-  const user = await getAuthUser();
+  const user = await getCurrentUser();
   if (!user) return { success: false, error: 'Unauthorized' };
 
   const parsed = createProductSchema.safeParse(input);
@@ -300,7 +300,7 @@ export async function updateProduct(
   input: unknown,
   newImageUrls: string[],
 ): Promise<ActionResult<{ id: string }>> {
-  const user = await getAuthUser();
+  const user = await getCurrentUser();
   if (!user) return { success: false, error: 'Unauthorized' };
 
   const parsed = updateProductSchema.safeParse(input);
@@ -362,7 +362,7 @@ export async function updateProduct(
 // ── Delete Product ───────────────────────────────────────────
 
 export async function deleteProduct(id: string): Promise<ActionResult<{ imageUrls: string[] }>> {
-  const user = await getAuthUser();
+  const user = await getCurrentUser();
   if (!user) return { success: false, error: 'Unauthorized' };
 
   const product = await db.query.products.findFirst({
@@ -383,7 +383,7 @@ export async function deleteProduct(id: string): Promise<ActionResult<{ imageUrl
 // ── Stats ────────────────────────────────────────────────────
 
 export async function getProductStats() {
-  const user = await getAuthUser();
+  const user = await getCurrentUser();
   if (!user) return { total: 0, active: 0, lowStock: 0, outOfStock: 0 };
 
   const rows = await db.query.products.findMany({

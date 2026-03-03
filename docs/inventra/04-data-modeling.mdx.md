@@ -241,7 +241,7 @@ Here are the design decisions for the new schema:
 
 **Decouple from Supabase auth.** The `profiles` table becomes `users` with its own `id` primary key (still uuid). No foreign key to `auth.users`. Auth will be handled at the application layer in Chapter 6.
 
-**Add a password hash column.** Since we're building our own auth, users need a `password_hash` column. Supabase handled this internally before.
+**Delegate password storage to better-auth.** The `users` table does not need a `password_hash` column. better-auth manages credentials in its own `account` table (covered in Chapter 6). Our `users` table stays clean—just profile and role data.
 
 **Convert boolean status fields to enums.** The current schema uses `is_active boolean` on profiles and categories. That works for two states, but if we ever need a third state (like `suspended` for users), a boolean won't cut it. Enums are more expressive and barely cost anything extra.
 
@@ -266,6 +266,7 @@ src/db/
     ├── products.ts             # Products + product_stocks tables
     ├── transactions.ts         # Transactions + transaction_lines + stock_reservations
     ├── activity-logs.ts        # Activity logs table
+    ├── auth.ts                 # better-auth tables (user, session, account, verification)
     └── index.ts                # Barrel export
 ```
 
@@ -388,7 +389,6 @@ export const users = pgTable(
   {
     id: uuid('id').defaultRandom().primaryKey(),
     email: varchar('email', { length: 255 }).notNull().unique(),
-    passwordHash: text('password_hash').notNull(),
     displayName: varchar('display_name', { length: 100 }),
     imageUrl: text('image_url'),
     phone: varchar('phone', { length: 20 }),
@@ -434,7 +434,6 @@ import { stockReservations } from './transactions';
 export const selectUserSchema = createSelectSchema(users);
 export const insertUserSchema = createInsertSchema(users, {
   email: (schema) => schema.email(),
-  passwordHash: (schema) => schema.min(1),
   displayName: (schema) => schema.max(100),
   phone: (schema) => schema.max(20),
 });
@@ -444,7 +443,7 @@ export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 ```
 
-A few things worth noting. The `is_active` boolean is gone, replaced by the `userStatusEnum` with three values: `active`, `inactive`, `suspended`. We added `passwordHash` since we're handling auth ourselves now. The `$onUpdate` on `updatedAt` replicates the old trigger behavior at the ORM level. And `lastLoginAt` gives us a column for tracking the last sign-in without polluting the activity log.
+A few things worth noting. The `is_active` boolean is gone, replaced by the `userStatusEnum` with three values: `active`, `inactive`, `suspended`. There is no `passwordHash` column here—better-auth stores credentials in its own `account` table, keeping the `users` table focused on profile and role data. The `$onUpdate` on `updatedAt` replicates the old trigger behavior at the ORM level. And `lastLoginAt` gives us a column for tracking the last sign-in without polluting the activity log.
 
 ### `src/db/schema/warehouses.ts`
 
@@ -1021,6 +1020,7 @@ export {
   stockReservationsRelations,
 } from './transactions';
 export { activityLogs, activityLogsRelations } from './activity-logs';
+export { authUsers, sessions, accounts, verifications } from './auth';
 
 // ── Zod schemas ──────────────────────────────────────────────
 export { selectUserSchema, insertUserSchema } from './users';
@@ -1109,7 +1109,7 @@ Let's summarize the differences between the old Supabase schema and the new Driz
 | --------------------------- | ------------------------------- | ------------------------------- | ---------------------------------------- |
 | User table name             | `profiles`                      | `users`                         | Self-contained, no auth.users dependency |
 | Auth link                   | FK to `auth.users(id)`          | Independent `id` column         | Decouples from Supabase                  |
-| Password storage            | Handled by Supabase Auth        | `password_hash` column          | Custom auth in Chapter 6                 |
+| Password storage            | Handled by Supabase Auth        | better-auth `account` table     | Managed by better-auth (Chapter 6)       |
 | `is_active` boolean         | On profiles, categories         | `status` enum                   | More expressive, extensible              |
 | Department values           | `'Warehouse'`, `'Headquarters'` | `'warehouse'`, `'headquarters'` | Consistent snake_case                    |
 | User role `'staff'`         | In TypeScript only              | `'warehouse_staff'` everywhere  | Matches database                         |
