@@ -32,13 +32,14 @@ function extractOrder(filename: string): number {
 
 function formatCollectionLabel(name: string): string {
   const labels: Record<string, string> = {
-    "blind75": "Blind 75 — LeetCode",
+    blind75: "Blind 75 — LeetCode",
     "focus-wp": "Focus — WordPress",
+    inventra: "Inventra",
     "furnicraft-odoo": "Furnicraft — Odoo ERP",
     "furnicraft-woo": "Furnicraft — WooCommerce",
     "belajar-rust": "Belajar Rust",
   };
-  return labels[name] ?? name.replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+  return labels[name] ?? name.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 // Build the collections index from glob keys (synchronous — no file I/O)
@@ -76,11 +77,8 @@ export function getCollections(): Collection[] {
 }
 
 // Load a single doc's MDX component (lazy — only fetches the chunk when called)
-export async function getDoc(
-  collection: string,
-  slug: string,
-): Promise<DocContent | null> {
-  const matchingKey = Object.keys(mdxModules).find(key => {
+export async function getDoc(collection: string, slug: string): Promise<DocContent | null> {
+  const matchingKey = Object.keys(mdxModules).find((key) => {
     const parsed = parseGlobKey(key);
     return parsed && parsed.collection === collection && slugify(parsed.filename) === slug;
   });
