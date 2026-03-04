@@ -1,0 +1,1236 @@
+# Chapter 3: Database Schema and Eloquent Models
+
+## 3.1 Schema Overview
+
+SIAKAD uses a MySQL/MariaDB database with 38 migration files producing approximately 30 application tables plus 5 Spatie permission tables. The schema divides into eight functional domains:
+
+| Domain | Tables | Purpose |
+|--------|--------|---------|
+| Core | `users`, `fakultas`, `prodi`, `dosen`, `mahasiswa`, `admin_fakultas` | Identity, organizational hierarchy, user profiles |
+| Academic | `tahun_akademik`, `mata_kuliah`, `kelas`, `jadwal_kuliah`, `ruangan` | Courses, scheduling, room allocation |
+| KRS | `krs`, `krs_detail` | Course registration per semester |
+| Grading | `nilai` | Final grades per student per class |
+| Attendance | `pertemuan`, `presensi`, `kehadiran_dosen` | Session tracking, student/lecturer attendance |
+| LMS | `materi`, `tugas`, `tugas_submission` | Learning materials, assignments, submissions |
+| Thesis & Internship | `skripsi`, `bimbingan`, `kerja_praktek`, `logbook_kp` | Thesis management, internship tracking |
+| Supporting | `notifications`, `activity_logs`, `ai_conversations`, permission tables | Audit trail, notifications, AI chatbot, RBAC |
+
+## 3.2 Entity-Relationship Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                              CORE DOMAIN                                            │
+│                                                                                     │
+│  ┌──────────┐       ┌───────────┐       ┌──────────┐                                │
+│  │  users   │──1:1──│   dosen   │──M:1──│ fakultas │                                │
+│  │          │──1:1──│           │──M:1──│          │                                │
+│  │          │       └─────┬─────┘       └────┬─────┘                                │
+│  │          │             │                  │                                      │
+│  │          │             │ M:1              │ 1:M                                  │
+│  │          │             ▼                  ▼                                      │
+│  │          │──1:1──┌───────────┐       ┌──────────┐                                │
+│  │          │       │ mahasiswa │──M:1──│  prodi   │──M:1── fakultas                │
+│  │          │       └─────┬─────┘       └──────────┘                                │
+│  │          │──1:1──┌─────────────────┐                                             │
+│  │          │       │ admin_fakultas  │──M:1── fakultas                             │
+│  └──────────┘       └─────────────────┘                                             │
+│       │                                                                             │
+│       │ 1:M (approved_by)                                                           │
+│       ▼                                                                             │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                            ACADEMIC DOMAIN                                          │
+│                                                                                     │
+│  ┌────────────────┐      ┌──────────┐      ┌──────────────┐      ┌──────────┐      │
+│  │ tahun_akademik │──1:M─│  kelas   │──M:1─│  mata_kuliah │──M:1─│  prodi   │      │
+│  └────────────────┘      │          │──M:1─│              │      └──────────┘      │
+│                          │          │──M:1─ dosen          │                        │
+│                          └────┬─────┘                      └──────────────┘        │
+│                               │ 1:M                                                 │
+│                               ▼                                                     │
+│                          ┌──────────────┐      ┌──────────┐                         │
+│                          │ jadwal_kuliah │──M:1─│ ruangan  │                         │
+│                          └──────┬───────┘      └──────────┘                         │
+│                                 │ 1:M                                               │
+│                                 ▼                                                   │
+│                          ┌──────────────┐                                           │
+│                          │  pertemuan   │                                            │
+│                          └──────────────┘                                           │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                         KRS & GRADING DOMAIN                                        │
+│                                                                                     │
+│  mahasiswa ──1:M──┌──────┐──1:M──┌────────────┐                                    │
+│                   │  krs │       │ krs_detail │──M:1── kelas                        │
+│  tahun_ak ──1:M───│      │       └────────────┘                                    │
+│  users ───────────│      │ (approved_by)                                            │
+│                   └──────┘                                                          │
+│                                                                                     │
+│  mahasiswa ──1:M──┌──────┐                                                          │
+│                   │nilai │──M:1── kelas                                             │
+│                   └──────┘                                                          │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                         ATTENDANCE DOMAIN                                           │
+│                                                                                     │
+│  jadwal_kuliah ──1:M──┌───────────┐──1:M──┌──────────┐                              │
+│                       │ pertemuan │       │ presensi │──M:1── mahasiswa             │
+│                       └───────────┘       └──────────┘                              │
+│                                                                                     │
+│  jadwal_kuliah ──1:M──┌──────────────────┐                                          │
+│  dosen ──────────1:M──│ kehadiran_dosen  │                                          │
+│                       └──────────────────┘                                          │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                            LMS DOMAIN                                               │
+│                                                                                     │
+│  kelas ──1:M──┌────────┐                                                            │
+│               │ materi │                                                            │
+│               └────────┘                                                            │
+│                                                                                     │
+│  kelas ──1:M──┌────────┐──1:M──┌───────────────────┐                                │
+│               │ tugas  │       │ tugas_submission  │──M:1── mahasiswa               │
+│               └────────┘       └───────────────────┘                                │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                      THESIS & INTERNSHIP DOMAIN                                     │
+│                                                                                     │
+│  mahasiswa ──1:M──┌─────────┐──1:M──┌───────────┐                                   │
+│                   │ skripsi │       │ bimbingan │                                   │
+│  dosen ───────────│         │ (pembimbing 1 & 2)                                   │
+│                   └─────────┘                                                       │
+│                                                                                     │
+│  mahasiswa ──1:M──┌───────────────┐──1:M──┌─────────────┐                            │
+│                   │ kerja_praktek │       │ logbook_kp  │                            │
+│  dosen ───────────│               │ (pembimbing)                                   │
+│                   └───────────────┘                                                  │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 3.3 Table-by-Table Documentation
+
+### 3.3.1 Core Domain
+
+#### `users`
+
+Central authentication table. Every person in the system—superadmin, faculty admin, lecturer, or student—has exactly one row here.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `name` | `string` | NOT NULL | Display name |
+| `email` | `string` | NOT NULL, UNIQUE | Login identifier |
+| `email_verified_at` | `timestamp` | NULLABLE | Laravel email verification |
+| `password` | `string` | NOT NULL | Bcrypt hash |
+| `role` | `enum` | NOT NULL | `superadmin`, `admin_fakultas`, `dosen`, `mahasiswa` |
+| `remember_token` | `string(100)` | NULLABLE | "Remember me" session token |
+| `created_at` | `timestamp` | NULLABLE | |
+| `updated_at` | `timestamp` | NULLABLE | |
+
+**Indexes:** unique on `email`
+
+**Design notes:** The `role` column is an enum stored directly on the user row, providing fast role checks without joins. The system also uses Spatie's `model_has_roles` table, creating a dual-role system. The `HasRole` trait on the User model exposes convenience methods (`isSuperadmin()`, `isDosen()`, etc.) that check the enum column, not Spatie roles.
+
+---
+
+#### `fakultas`
+
+Top-level organizational unit. A university faculty (e.g., "Fakultas Teknik").
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `nama` | `string` | NOT NULL | Full faculty name |
+| `kode_fakultas` | `string` | NOT NULL, UNIQUE | Short code (e.g., "FT") |
+| `deskripsi` | `text` | NULLABLE | Optional description |
+| `created_at` | `timestamp` | NULLABLE | |
+| `updated_at` | `timestamp` | NULLABLE | |
+
+**Indexes:** unique on `kode_fakultas`
+
+**Referenced by:** `prodi.fakultas_id`, `dosen.fakultas_id`, `mahasiswa.fakultas_id`, `admin_fakultas.fakultas_id`, `users.fakultas_id` (though `users` does not have an FK column — the accessor `getFakultasIdAttribute()` resolves it through related models).
+
+---
+
+#### `prodi`
+
+Study program (Program Studi). Sits under a faculty. All courses and students belong to a prodi.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `nama` | `string` | NOT NULL | Program name |
+| `kode_prodi` | `string` | NOT NULL, UNIQUE | Short code (e.g., "SI") |
+| `fakultas_id` | `bigint unsigned` | FK → `fakultas(id)` CASCADE | Parent faculty |
+| `jenjang` | `enum` | NOT NULL | `S1`, `S2`, `S3`, `D3`, `D4` |
+| `akreditasi` | `string` | NULLABLE | Accreditation grade (e.g., "A", "Unggul") |
+| `deskripsi` | `text` | NULLABLE | |
+| `created_at` | `timestamp` | NULLABLE | |
+| `updated_at` | `timestamp` | NULLABLE | |
+
+**Indexes:** unique on `kode_prodi`
+**Foreign keys:** `fakultas_id` → `fakultas(id)` ON DELETE CASCADE
+
+---
+
+#### `dosen`
+
+Lecturer profile. One-to-one with `users`. A dosen belongs to a faculty and optionally to a prodi.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `user_id` | `bigint unsigned` | FK → `users(id)` CASCADE, UNIQUE | Auth account link |
+| `nidn` | `string` | NOT NULL, UNIQUE | National lecturer ID number |
+| `nama` | `string` | NOT NULL | Full name |
+| `email` | `string` | NULLABLE | Separate from `users.email`; may be institutional email |
+| `no_telepon` | `string` | NULLABLE | |
+| `alamat` | `text` | NULLABLE | |
+| `fakultas_id` | `bigint unsigned` | FK → `fakultas(id)` CASCADE | |
+| `prodi_id` | `bigint unsigned` | FK → `prodi(id)` SET NULL, NULLABLE | |
+| `jabatan_fungsional` | `string` | NULLABLE | Academic rank (Lektor, Guru Besar, etc.) |
+| `status` | `enum` | NOT NULL, default `aktif` | `aktif`, `cuti`, `nonaktif` |
+| `created_at` | `timestamp` | NULLABLE | |
+| `updated_at` | `timestamp` | NULLABLE | |
+
+**Indexes:** unique on `nidn`, unique on `user_id`
+**Foreign keys:**
+- `user_id` → `users(id)` ON DELETE CASCADE
+- `fakultas_id` → `fakultas(id)` ON DELETE CASCADE
+- `prodi_id` → `prodi(id)` ON DELETE SET NULL
+
+**Design notes:** `prodi_id` is nullable with SET NULL because some lecturers serve at the faculty level without assignment to a specific program. The `email` field here is separate from `users.email` — this allows an institutional email distinct from the login email.
+
+---
+
+#### `mahasiswa`
+
+Student profile. One-to-one with `users`. Contains academic and personal data.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `user_id` | `bigint unsigned` | FK → `users(id)` CASCADE, UNIQUE | Auth account link |
+| `nim` | `string` | NOT NULL, UNIQUE | Student ID number |
+| `nama` | `string` | NOT NULL | Full name |
+| `email` | `string` | NULLABLE | Institutional email |
+| `no_telepon` | `string` | NULLABLE | |
+| `alamat` | `text` | NULLABLE | |
+| `tanggal_lahir` | `date` | NULLABLE | Date of birth |
+| `jenis_kelamin` | `enum` | NULLABLE | `L` (male), `P` (female) |
+| `fakultas_id` | `bigint unsigned` | FK → `fakultas(id)` CASCADE | |
+| `prodi_id` | `bigint unsigned` | FK → `prodi(id)` CASCADE | |
+| `semester` | `integer` | NOT NULL, default `1` | Current semester number |
+| `status` | `enum` | NOT NULL, default `aktif` | `aktif`, `cuti`, `lulus`, `do`, `mengundurkan_diri` |
+| `dosen_pa_id` | `bigint unsigned` | FK → `dosen(id)` SET NULL, NULLABLE | Academic advisor |
+| `angkatan` | `string` | NULLABLE | Enrollment year (e.g., "2023") |
+| `created_at` | `timestamp` | NULLABLE | |
+| `updated_at` | `timestamp` | NULLABLE | |
+
+**Indexes:** unique on `nim`, unique on `user_id`
+**Foreign keys:**
+- `user_id` → `users(id)` ON DELETE CASCADE
+- `fakultas_id` → `fakultas(id)` ON DELETE CASCADE
+- `prodi_id` → `prodi(id)` ON DELETE CASCADE
+- `dosen_pa_id` → `dosen(id)` ON DELETE SET NULL
+
+**Design notes:** Unlike `dosen.prodi_id`, the student's `prodi_id` is NOT nullable — every student must belong to a program. The `dosen_pa_id` column links to the student's academic advisor (Pembimbing Akademik). SET NULL on delete prevents cascading student deletion when an advisor record is removed.
+
+---
+
+#### `admin_fakultas`
+
+Bridge table linking a user to a faculty for faculty-level admin privileges.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `user_id` | `bigint unsigned` | FK → `users(id)` CASCADE | |
+| `fakultas_id` | `bigint unsigned` | FK → `fakultas(id)` CASCADE | |
+| `created_at` | `timestamp` | NULLABLE | |
+| `updated_at` | `timestamp` | NULLABLE | |
+
+**Foreign keys:**
+- `user_id` → `users(id)` ON DELETE CASCADE
+- `fakultas_id` → `fakultas(id)` ON DELETE CASCADE
+
+**Design notes:** This table answers the question "Which faculty does this admin manage?" A user with `role=admin_fakultas` has a corresponding row here scoping their permissions to one faculty.
+
+---
+
+### 3.3.2 Academic Domain
+
+#### `tahun_akademik`
+
+Academic year/semester periods. Controls which semester is active for KRS, grading, and scheduling.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `tahun` | `string` | NOT NULL | Format: "2023/2024" |
+| `semester` | `enum` | NOT NULL | `ganjil` (odd), `genap` (even) |
+| `is_active` | `boolean` | NOT NULL, default `false` | Only one should be `true` at a time |
+| `tanggal_mulai` | `date` | NOT NULL | Semester start date |
+| `tanggal_selesai` | `date` | NOT NULL | Semester end date |
+| `created_at` | `timestamp` | NULLABLE | |
+| `updated_at` | `timestamp` | NULLABLE | |
+
+**Scopes:** The Eloquent model defines an `active()` scope to query only the currently active academic period.
+
+**Business rule:** Although the database does not enforce a single active row via unique constraint, application logic should set only one row to `is_active = true` at a time.
+
+---
+
+#### `mata_kuliah`
+
+Course catalog. Defines courses offered by a study program.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `kode_mk` | `string` | NOT NULL, UNIQUE | Course code (e.g., "IF101") |
+| `nama` | `string` | NOT NULL | Course name |
+| `sks` | `integer` | NOT NULL | Credit hours (SKS) |
+| `semester` | `integer` | NOT NULL | Recommended semester (1–8) |
+| `jenis` | `enum` | NOT NULL, default `wajib` | `wajib` (required), `pilihan` (elective) |
+| `deskripsi` | `text` | NULLABLE | |
+| `prodi_id` | `bigint unsigned` | FK → `prodi(id)` CASCADE | Owning program |
+| `created_at` | `timestamp` | NULLABLE | |
+| `updated_at` | `timestamp` | NULLABLE | |
+
+**Indexes:** unique on `kode_mk`
+**Foreign keys:** `prodi_id` → `prodi(id)` ON DELETE CASCADE
+
+---
+
+#### `kelas`
+
+A class section: one offering of a course in a given semester, taught by one lecturer.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `kode_kelas` | `string` | NOT NULL | Section code (e.g., "A", "B") |
+| `mata_kuliah_id` | `bigint unsigned` | FK → `mata_kuliah(id)` CASCADE | |
+| `dosen_id` | `bigint unsigned` | FK → `dosen(id)` CASCADE | Teaching lecturer |
+| `tahun_akademik_id` | `bigint unsigned` | FK → `tahun_akademik(id)` CASCADE | Academic period |
+| `kapasitas` | `integer` | NOT NULL, default `40` | Max enrollment |
+| `jumlah_mahasiswa` | `integer` | NOT NULL, default `0` | Current enrollment count |
+| `hari` | `enum` | NOT NULL | `senin`, `selasa`, `rabu`, `kamis`, `jumat` |
+| `jam_mulai` | `time` | NOT NULL | Start time |
+| `jam_selesai` | `time` | NOT NULL | End time |
+| `ruangan` | `string` | NULLABLE | Room name (plain text, not FK) |
+| `created_at` | `timestamp` | NULLABLE | |
+| `updated_at` | `timestamp` | NULLABLE | |
+
+**Foreign keys:**
+- `mata_kuliah_id` → `mata_kuliah(id)` ON DELETE CASCADE
+- `dosen_id` → `dosen(id)` ON DELETE CASCADE
+- `tahun_akademik_id` → `tahun_akademik(id)` ON DELETE CASCADE
+
+**Design notes:** The `kelas` table stores both scheduling data (`hari`, `jam_mulai`, `jam_selesai`) and capacity tracking (`kapasitas`, `jumlah_mahasiswa`). The `ruangan` column here is a plain string, separate from the `ruangan` table. The `jadwal_kuliah` table provides a more normalized scheduling model with an FK to the `ruangan` table. This duplication suggests an incremental migration: `kelas` held the original schedule, and `jadwal_kuliah` was added later for richer scheduling with room management.
+
+---
+
+#### `jadwal_kuliah`
+
+Normalized schedule entries per class. Links classes to rooms from the `ruangan` table.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `kelas_id` | `bigint unsigned` | FK → `kelas(id)` CASCADE | |
+| `hari` | `enum` | NOT NULL | `senin`, `selasa`, `rabu`, `kamis`, `jumat` |
+| `jam_mulai` | `time` | NOT NULL | |
+| `jam_selesai` | `time` | NOT NULL | |
+| `ruangan_id` | `bigint unsigned` | FK → `ruangan(id)` SET NULL, NULLABLE | |
+| `created_at` | `timestamp` | NULLABLE | |
+| `updated_at` | `timestamp` | NULLABLE | |
+
+**Foreign keys:**
+- `kelas_id` → `kelas(id)` ON DELETE CASCADE
+- `ruangan_id` → `ruangan(id)` ON DELETE SET NULL
+
+---
+
+#### `ruangan`
+
+Physical rooms/halls available for scheduling.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `kode_ruangan` | `string` | NOT NULL, UNIQUE | Room code (e.g., "GD-A-201") |
+| `nama` | `string` | NOT NULL | Room name |
+| `kapasitas` | `integer` | NOT NULL | Seating capacity |
+| `gedung` | `string` | NULLABLE | Building name |
+| `lantai` | `integer` | NULLABLE | Floor number |
+| `fasilitas` | `json` | NULLABLE | List of facilities (projector, AC, etc.) |
+| `created_at` | `timestamp` | NULLABLE | |
+| `updated_at` | `timestamp` | NULLABLE | |
+
+**Indexes:** unique on `kode_ruangan`
+
+---
+
+### 3.3.3 KRS Domain (Course Registration)
+
+#### `krs`
+
+KRS (Kartu Rencana Studi) header. One per student per academic period. Tracks approval workflow.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `mahasiswa_id` | `bigint unsigned` | FK → `mahasiswa(id)` CASCADE | |
+| `tahun_akademik_id` | `bigint unsigned` | FK → `tahun_akademik(id)` CASCADE | |
+| `status` | `enum` | NOT NULL, default `draft` | `draft`, `pending`, `approved`, `rejected` |
+| `catatan` | `text` | NULLABLE | Reviewer notes |
+| `approved_by` | `bigint unsigned` | FK → `users(id)` SET NULL, NULLABLE | Approver (advisor/admin) |
+| `approved_at` | `timestamp` | NULLABLE | Approval timestamp |
+| `total_sks` | `integer` | NOT NULL, default `0` | Sum of selected course credits |
+| `created_at` | `timestamp` | NULLABLE | |
+| `updated_at` | `timestamp` | NULLABLE | |
+
+**Indexes:** unique composite on `(mahasiswa_id, tahun_akademik_id)`
+**Foreign keys:**
+- `mahasiswa_id` → `mahasiswa(id)` ON DELETE CASCADE
+- `tahun_akademik_id` → `tahun_akademik(id)` ON DELETE CASCADE
+- `approved_by` → `users(id)` ON DELETE SET NULL
+
+**Composite unique constraint purpose:** A student can only have one KRS per academic period. Prevents duplicate registrations for the same semester.
+
+---
+
+#### `krs_detail`
+
+Line items of a KRS. Each row is one class the student registered for.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `krs_id` | `bigint unsigned` | FK → `krs(id)` CASCADE | Parent KRS |
+| `kelas_id` | `bigint unsigned` | FK → `kelas(id)` CASCADE | Selected class |
+| `created_at` | `timestamp` | NULLABLE | |
+| `updated_at` | `timestamp` | NULLABLE | |
+
+**Indexes:** unique composite on `(krs_id, kelas_id)`
+**Foreign keys:**
+- `krs_id` → `krs(id)` ON DELETE CASCADE
+- `kelas_id` → `kelas(id)` ON DELETE CASCADE
+
+**Composite unique constraint purpose:** Prevents a student from registering for the same class section twice within a single KRS.
+
+---
+
+### 3.3.4 Grading Domain
+
+#### `nilai`
+
+Stores final grades. One row per student per class.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `mahasiswa_id` | `bigint unsigned` | FK → `mahasiswa(id)` CASCADE | |
+| `kelas_id` | `bigint unsigned` | FK → `kelas(id)` CASCADE | |
+| `nilai_angka` | `decimal(5,2)` | NULLABLE | Numeric grade (0–100) |
+| `nilai_huruf` | `string` | NULLABLE | Letter grade (A, B+, etc.) |
+| `bobot` | `decimal(3,2)` | NULLABLE | Grade point (0.00–4.00) |
+| `status` | `enum` | NOT NULL, default `draft` | `draft`, `submitted`, `final` |
+| `created_at` | `timestamp` | NULLABLE | |
+| `updated_at` | `timestamp` | NULLABLE | |
+
+**Indexes:** unique composite on `(mahasiswa_id, kelas_id)`
+**Foreign keys:**
+- `mahasiswa_id` → `mahasiswa(id)` ON DELETE CASCADE
+- `kelas_id` → `kelas(id)` ON DELETE CASCADE
+
+**Composite unique constraint purpose:** Each student receives exactly one grade per class. No duplicate grading.
+
+---
+
+### 3.3.5 Attendance Domain
+
+#### `pertemuan`
+
+Individual class sessions (meetings). Tracks which session number it is and what material was covered.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `jadwal_kuliah_id` | `bigint unsigned` | FK → `jadwal_kuliah(id)` CASCADE | |
+| `pertemuan_ke` | `integer` | NOT NULL | Session number (1, 2, 3, ...) |
+| `tanggal` | `date` | NOT NULL | Actual date of session |
+| `materi` | `text` | NULLABLE | Topic/material covered |
+| `created_at` | `timestamp` | NULLABLE | |
+| `updated_at` | `timestamp` | NULLABLE | |
+
+**Indexes:** unique composite on `(jadwal_kuliah_id, pertemuan_ke)`
+**Foreign keys:** `jadwal_kuliah_id` → `jadwal_kuliah(id)` ON DELETE CASCADE
+
+**Composite unique constraint purpose:** Session numbers must be unique within a schedule entry. Prevents two "Session 5" records for the same class schedule.
+
+---
+
+#### `presensi`
+
+Student attendance records per session.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `pertemuan_id` | `bigint unsigned` | FK → `pertemuan(id)` CASCADE | |
+| `mahasiswa_id` | `bigint unsigned` | FK → `mahasiswa(id)` CASCADE | |
+| `status` | `enum` | NOT NULL, default `hadir` | `hadir`, `sakit`, `izin`, `alpa` |
+| `keterangan` | `text` | NULLABLE | Remarks |
+| `created_at` | `timestamp` | NULLABLE | |
+| `updated_at` | `timestamp` | NULLABLE | |
+
+**Indexes:** unique composite on `(pertemuan_id, mahasiswa_id)`
+**Foreign keys:**
+- `pertemuan_id` → `pertemuan(id)` ON DELETE CASCADE
+- `mahasiswa_id` → `mahasiswa(id)` ON DELETE CASCADE
+
+**Composite unique constraint purpose:** One attendance record per student per session.
+
+---
+
+#### `kehadiran_dosen`
+
+Lecturer attendance records per scheduled class session.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `dosen_id` | `bigint unsigned` | FK → `dosen(id)` CASCADE | |
+| `jadwal_kuliah_id` | `bigint unsigned` | FK → `jadwal_kuliah(id)` CASCADE | |
+| `tanggal` | `date` | NOT NULL | |
+| `jam_masuk` | `time` | NULLABLE | Clock-in time |
+| `jam_keluar` | `time` | NULLABLE | Clock-out time |
+| `status` | `enum` | NOT NULL, default `hadir` | `hadir`, `izin`, `sakit` |
+| `keterangan` | `text` | NULLABLE | |
+| `created_at` | `timestamp` | NULLABLE | |
+| `updated_at` | `timestamp` | NULLABLE | |
+
+**Indexes:** unique composite on `(dosen_id, jadwal_kuliah_id, tanggal)`
+**Foreign keys:**
+- `dosen_id` → `dosen(id)` ON DELETE CASCADE
+- `jadwal_kuliah_id` → `jadwal_kuliah(id)` ON DELETE CASCADE
+
+**Composite unique constraint purpose:** A lecturer can only have one attendance record per schedule per date. The triple key is needed because `jadwal_kuliah` represents a recurring weekly slot, and the `tanggal` differentiates individual occurrences.
+
+---
+
+### 3.3.6 LMS Domain
+
+#### `materi`
+
+Course materials (documents, videos, links) attached to a class.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `kelas_id` | `bigint unsigned` | FK → `kelas(id)` CASCADE | |
+| `judul` | `string` | NOT NULL | Material title |
+| `deskripsi` | `text` | NULLABLE | |
+| `file_path` | `string` | NULLABLE | Stored file path |
+| `tipe` | `enum` | NOT NULL, default `dokumen` | `dokumen`, `video`, `link` |
+| `urutan` | `integer` | NOT NULL, default `0` | Display order |
+| `created_at` | `timestamp` | NULLABLE | |
+| `updated_at` | `timestamp` | NULLABLE | |
+
+**Foreign keys:** `kelas_id` → `kelas(id)` ON DELETE CASCADE
+
+---
+
+#### `tugas`
+
+Assignments posted by lecturers for a class.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `kelas_id` | `bigint unsigned` | FK → `kelas(id)` CASCADE | |
+| `judul` | `string` | NOT NULL | Assignment title |
+| `deskripsi` | `text` | NULLABLE | |
+| `tanggal_deadline` | `datetime` | NOT NULL | Submission deadline |
+| `bobot_nilai` | `integer` | NOT NULL, default `0` | Weight in final grade calculation |
+| `created_at` | `timestamp` | NULLABLE | |
+| `updated_at` | `timestamp` | NULLABLE | |
+
+**Foreign keys:** `kelas_id` → `kelas(id)` ON DELETE CASCADE
+
+---
+
+#### `tugas_submission`
+
+Student submissions for assignments. Tracks submission time and grading.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `tugas_id` | `bigint unsigned` | FK → `tugas(id)` CASCADE | |
+| `mahasiswa_id` | `bigint unsigned` | FK → `mahasiswa(id)` CASCADE | |
+| `file_path` | `string` | NULLABLE | Uploaded file |
+| `catatan` | `text` | NULLABLE | Student notes |
+| `nilai` | `decimal(5,2)` | NULLABLE | Score given by lecturer |
+| `submitted_at` | `timestamp` | NULLABLE | When the student submitted |
+| `graded_at` | `timestamp` | NULLABLE | When the lecturer graded |
+| `created_at` | `timestamp` | NULLABLE | |
+| `updated_at` | `timestamp` | NULLABLE | |
+
+**Indexes:** unique composite on `(tugas_id, mahasiswa_id)`
+**Foreign keys:**
+- `tugas_id` → `tugas(id)` ON DELETE CASCADE
+- `mahasiswa_id` → `mahasiswa(id)` ON DELETE CASCADE
+
+**Composite unique constraint purpose:** One submission per student per assignment.
+
+---
+
+### 3.3.7 Thesis & Internship Domain
+
+#### `skripsi`
+
+Thesis/final project records. Tracks the full lifecycle from proposal to completion.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `mahasiswa_id` | `bigint unsigned` | FK → `mahasiswa(id)` CASCADE | |
+| `judul` | `string` | NOT NULL | Thesis title |
+| `deskripsi` | `text` | NULLABLE | Abstract/description |
+| `pembimbing1_id` | `bigint unsigned` | FK → `dosen(id)` CASCADE | Primary advisor |
+| `pembimbing2_id` | `bigint unsigned` | FK → `dosen(id)` SET NULL, NULLABLE | Secondary advisor |
+| `status` | `enum` | NOT NULL, default `pengajuan` | See lifecycle below |
+| `tanggal_pengajuan` | `date` | NULLABLE | Proposal submission date |
+| `tanggal_selesai` | `date` | NULLABLE | Completion date |
+| `file_proposal` | `string` | NULLABLE | Proposal file path |
+| `file_skripsi` | `string` | NULLABLE | Final thesis file path |
+| `created_at` | `timestamp` | NULLABLE | |
+| `updated_at` | `timestamp` | NULLABLE | |
+
+**Foreign keys:**
+- `mahasiswa_id` → `mahasiswa(id)` ON DELETE CASCADE
+- `pembimbing1_id` → `dosen(id)` ON DELETE CASCADE
+- `pembimbing2_id` → `dosen(id)` ON DELETE SET NULL
+
+**Design notes:** `pembimbing1_id` uses CASCADE (thesis cannot exist without a primary advisor), while `pembimbing2_id` uses SET NULL (secondary advisor is optional).
+
+---
+
+#### `bimbingan`
+
+Thesis advising/consultation sessions between student and advisor.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `skripsi_id` | `bigint unsigned` | FK → `skripsi(id)` CASCADE | |
+| `tanggal` | `date` | NOT NULL | Session date |
+| `catatan` | `text` | NOT NULL | Session notes |
+| `status` | `enum` | NOT NULL, default `pending` | `pending`, `approved`, `revision` |
+| `file_bimbingan` | `string` | NULLABLE | Attached file |
+| `created_at` | `timestamp` | NULLABLE | |
+| `updated_at` | `timestamp` | NULLABLE | |
+
+**Foreign keys:** `skripsi_id` → `skripsi(id)` ON DELETE CASCADE
+
+---
+
+#### `kerja_praktek`
+
+Internship/practical work records.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `mahasiswa_id` | `bigint unsigned` | FK → `mahasiswa(id)` CASCADE | |
+| `judul` | `string` | NOT NULL | Internship title/project |
+| `perusahaan` | `string` | NOT NULL | Company name |
+| `alamat_perusahaan` | `text` | NULLABLE | Company address |
+| `tanggal_mulai` | `date` | NOT NULL | Start date |
+| `tanggal_selesai` | `date` | NULLABLE | End date |
+| `pembimbing_id` | `bigint unsigned` | FK → `dosen(id)` SET NULL, NULLABLE | Campus advisor |
+| `pembimbing_industri` | `string` | NULLABLE | Industry supervisor name (plain text, not FK) |
+| `status` | `enum` | NOT NULL, default `pengajuan` | `pengajuan`, `berlangsung`, `selesai`, `batal` |
+| `nilai` | `string` | NULLABLE | Final grade |
+| `file_laporan` | `string` | NULLABLE | Report file path |
+| `created_at` | `timestamp` | NULLABLE | |
+| `updated_at` | `timestamp` | NULLABLE | |
+
+**Foreign keys:**
+- `mahasiswa_id` → `mahasiswa(id)` ON DELETE CASCADE
+- `pembimbing_id` → `dosen(id)` ON DELETE SET NULL
+
+---
+
+#### `logbook_kp`
+
+Daily activity log for internships.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `kerja_praktek_id` | `bigint unsigned` | FK → `kerja_praktek(id)` CASCADE | |
+| `tanggal` | `date` | NOT NULL | Activity date |
+| `kegiatan` | `text` | NOT NULL | Activity description |
+| `keterangan` | `text` | NULLABLE | Additional notes |
+| `created_at` | `timestamp` | NULLABLE | |
+| `updated_at` | `timestamp` | NULLABLE | |
+
+**Foreign keys:** `kerja_praktek_id` → `kerja_praktek(id)` ON DELETE CASCADE
+
+---
+
+### 3.3.8 Supporting Domain
+
+#### `notifications`
+
+Laravel's default notification table for database-stored notifications.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `uuid` | PK | UUID, not auto-increment |
+| `type` | `string` | NOT NULL | Notification class FQCN |
+| `notifiable_type` | `string` | NOT NULL | Polymorphic model type |
+| `notifiable_id` | `bigint unsigned` | NOT NULL | Polymorphic model ID |
+| `data` | `text` | NOT NULL | JSON payload |
+| `read_at` | `timestamp` | NULLABLE | Null = unread |
+| `created_at` | `timestamp` | NULLABLE | |
+| `updated_at` | `timestamp` | NULLABLE | |
+
+**Indexes:** composite index on `(notifiable_type, notifiable_id)`
+
+---
+
+#### `activity_logs`
+
+Audit trail for user actions throughout the system.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `user_id` | `bigint unsigned` | FK → `users(id)` SET NULL, NULLABLE | Acting user |
+| `action` | `string` | NOT NULL | Action name (e.g., "created", "updated") |
+| `model_type` | `string` | NULLABLE | Polymorphic: affected model class |
+| `model_id` | `bigint unsigned` | NULLABLE | Polymorphic: affected model ID |
+| `data` | `json` | NULLABLE | Additional context (old/new values, etc.) |
+| `ip_address` | `string` | NULLABLE | Client IP |
+| `user_agent` | `text` | NULLABLE | Browser/client info |
+| `created_at` | `timestamp` | NULLABLE | |
+| `updated_at` | `timestamp` | NULLABLE | |
+
+**Indexes:** composite index on `(model_type, model_id)`, index on `user_id`, index on `action`, index on `created_at`
+**Foreign keys:** `user_id` → `users(id)` ON DELETE SET NULL
+
+**Design notes:** The four separate indexes indicate this table is expected to be queried frequently by different dimensions: by model (what was affected), by user (who did it), by action type, and by time range.
+
+---
+
+#### `ai_conversations`
+
+Stores AI chatbot conversation history for students.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `mahasiswa_id` | `bigint unsigned` | FK → `mahasiswa(id)` CASCADE | |
+| `role` | `string` | NOT NULL | `user` or `assistant` |
+| `content` | `text` | NOT NULL | Message content |
+| `guard_triggered` | `string` | NULLABLE | Safety/guard rail flag |
+| `created_at` | `timestamp` | NULLABLE | |
+| `updated_at` | `timestamp` | NULLABLE | |
+
+**Indexes:** index on `mahasiswa_id`
+**Foreign keys:** `mahasiswa_id` → `mahasiswa(id)` ON DELETE CASCADE
+
+---
+
+#### Spatie Permission Tables
+
+Five tables created by the `spatie/laravel-permission` package:
+
+| Table | Purpose |
+|-------|---------|
+| `permissions` | Available permissions (id, name, guard_name) |
+| `roles` | Available roles (id, name, guard_name) |
+| `model_has_permissions` | Direct permission→model assignments |
+| `model_has_roles` | Role→model assignments |
+| `role_has_permissions` | Which permissions belong to which roles |
+
+These tables support the RBAC layer. The seeder creates four roles (`superadmin`, `admin_fakultas`, `dosen`, `mahasiswa`) each with four permissions.
+
+---
+
+## 3.4 Model Relationship Map
+
+The following table shows every Eloquent relationship defined across all 26 models:
+
+| Model | Relationship | Type | Related Model | FK / Key |
+|-------|-------------|------|---------------|----------|
+| **User** | `mahasiswa` | hasOne | Mahasiswa | `user_id` |
+| | `dosen` | hasOne | Dosen | `user_id` |
+| | `adminFakultas` | hasOne | AdminFakultas | `user_id` |
+| | `fakultas` | belongsTo | Fakultas | (accessor) |
+| **Fakultas** | `prodi` | hasMany | Prodi | `fakultas_id` |
+| | `dosen` | hasMany | Dosen | `fakultas_id` |
+| | `mahasiswa` | hasMany | Mahasiswa | `fakultas_id` |
+| | `adminFakultas` | hasMany | AdminFakultas | `fakultas_id` |
+| **Prodi** | `fakultas` | belongsTo | Fakultas | `fakultas_id` |
+| | `mahasiswa` | hasMany | Mahasiswa | `prodi_id` |
+| | `mataKuliah` | hasMany | MataKuliah | `prodi_id` |
+| | `dosen` | hasMany | Dosen | `prodi_id` |
+| **Dosen** | `user` | belongsTo | User | `user_id` |
+| | `fakultas` | belongsTo | Fakultas | `fakultas_id` |
+| | `prodi` | belongsTo | Prodi | `prodi_id` |
+| | `kelas` | hasMany | Kelas | `dosen_id` |
+| | `mahasiswaBimbingan` | hasMany | Mahasiswa | `dosen_pa_id` |
+| | `kehadiranDosen` | hasMany | KehadiranDosen | `dosen_id` |
+| | `skripsiPembimbing1` | hasMany | Skripsi | `pembimbing1_id` |
+| | `skripsiPembimbing2` | hasMany | Skripsi | `pembimbing2_id` |
+| | `kerjaPraktek` | hasMany | KerjaPraktek | `pembimbing_id` |
+| **Mahasiswa** | `user` | belongsTo | User | `user_id` |
+| | `fakultas` | belongsTo | Fakultas | `fakultas_id` |
+| | `prodi` | belongsTo | Prodi | `prodi_id` |
+| | `dosenPa` | belongsTo | Dosen | `dosen_pa_id` |
+| | `krs` | hasMany | Krs | `mahasiswa_id` |
+| | `nilai` | hasMany | Nilai | `mahasiswa_id` |
+| | `presensi` | hasMany | Presensi | `mahasiswa_id` |
+| | `skripsi` | hasMany | Skripsi | `mahasiswa_id` |
+| | `kerjaPraktek` | hasMany | KerjaPraktek | `mahasiswa_id` |
+| | `aiConversation` | hasMany | AiConversation | `mahasiswa_id` |
+| | `tugasSubmission` | hasMany | TugasSubmission | `mahasiswa_id` |
+| **TahunAkademik** | `krs` | hasMany | Krs | `tahun_akademik_id` |
+| | `kelas` | hasMany | Kelas | `tahun_akademik_id` |
+| **MataKuliah** | `prodi` | belongsTo | Prodi | `prodi_id` |
+| | `kelas` | hasMany | Kelas | `mata_kuliah_id` |
+| **Kelas** | `mataKuliah` | belongsTo | MataKuliah | `mata_kuliah_id` |
+| | `dosen` | belongsTo | Dosen | `dosen_id` |
+| | `tahunAkademik` | belongsTo | TahunAkademik | `tahun_akademik_id` |
+| | `krsDetail` | hasMany | KrsDetail | `kelas_id` |
+| | `jadwalKuliah` | hasMany | JadwalKuliah | `kelas_id` |
+| | `nilai` | hasMany | Nilai | `kelas_id` |
+| | `materi` | hasMany | Materi | `kelas_id` |
+| | `tugas` | hasMany | Tugas | `kelas_id` |
+| **JadwalKuliah** | `kelas` | belongsTo | Kelas | `kelas_id` |
+| | `ruangan` | belongsTo | Ruangan | `ruangan_id` |
+| | `pertemuan` | hasMany | Pertemuan | `jadwal_kuliah_id` |
+| | `kehadiranDosen` | hasMany | KehadiranDosen | `jadwal_kuliah_id` |
+| **Ruangan** | `jadwalKuliah` | hasMany | JadwalKuliah | `ruangan_id` |
+| **Krs** | `mahasiswa` | belongsTo | Mahasiswa | `mahasiswa_id` |
+| | `tahunAkademik` | belongsTo | TahunAkademik | `tahun_akademik_id` |
+| | `approvedBy` | belongsTo | User | `approved_by` |
+| | `krsDetail` | hasMany | KrsDetail | `krs_id` |
+| **KrsDetail** | `krs` | belongsTo | Krs | `krs_id` |
+| | `kelas` | belongsTo | Kelas | `kelas_id` |
+| **Nilai** | `mahasiswa` | belongsTo | Mahasiswa | `mahasiswa_id` |
+| | `kelas` | belongsTo | Kelas | `kelas_id` |
+| **Pertemuan** | `jadwalKuliah` | belongsTo | JadwalKuliah | `jadwal_kuliah_id` |
+| | `presensi` | hasMany | Presensi | `pertemuan_id` |
+| **Presensi** | `pertemuan` | belongsTo | Pertemuan | `pertemuan_id` |
+| | `mahasiswa` | belongsTo | Mahasiswa | `mahasiswa_id` |
+| **KehadiranDosen** | `dosen` | belongsTo | Dosen | `dosen_id` |
+| | `jadwalKuliah` | belongsTo | JadwalKuliah | `jadwal_kuliah_id` |
+| **Materi** | `kelas` | belongsTo | Kelas | `kelas_id` |
+| **Tugas** | `kelas` | belongsTo | Kelas | `kelas_id` |
+| | `submissions` | hasMany | TugasSubmission | `tugas_id` |
+| **TugasSubmission** | `tugas` | belongsTo | Tugas | `tugas_id` |
+| | `mahasiswa` | belongsTo | Mahasiswa | `mahasiswa_id` |
+| **Skripsi** | `mahasiswa` | belongsTo | Mahasiswa | `mahasiswa_id` |
+| | `pembimbing1` | belongsTo | Dosen | `pembimbing1_id` |
+| | `pembimbing2` | belongsTo | Dosen | `pembimbing2_id` |
+| | `bimbingan` | hasMany | Bimbingan | `skripsi_id` |
+| **Bimbingan** | `skripsi` | belongsTo | Skripsi | `skripsi_id` |
+| **KerjaPraktek** | `mahasiswa` | belongsTo | Mahasiswa | `mahasiswa_id` |
+| | `pembimbing` | belongsTo | Dosen | `pembimbing_id` |
+| | `logbook` | hasMany | LogbookKp | `kerja_praktek_id` |
+| **LogbookKp** | `kerjaPraktek` | belongsTo | KerjaPraktek | `kerja_praktek_id` |
+| **ActivityLog** | `user` | belongsTo | User | `user_id` |
+| | `model` | morphTo | (any) | `model_type`, `model_id` |
+| **AiConversation** | `mahasiswa` | belongsTo | Mahasiswa | `mahasiswa_id` |
+| **AdminFakultas** | `user` | belongsTo | User | `user_id` |
+| | `fakultas` | belongsTo | Fakultas | `fakultas_id` |
+
+### Relationship Traversal Paths
+
+Common query paths through the model graph:
+
+```
+Student's schedule:
+  Mahasiswa → Krs → KrsDetail → Kelas → JadwalKuliah → Ruangan
+
+Student's grades:
+  Mahasiswa → Nilai → Kelas → MataKuliah
+
+Lecturer's classes:
+  Dosen → Kelas → MataKuliah
+  Dosen → Kelas → JadwalKuliah
+
+Student's attendance:
+  Mahasiswa → Presensi → Pertemuan → JadwalKuliah → Kelas
+
+Thesis advising:
+  Dosen → skripsiPembimbing1 → Skripsi → Bimbingan
+  Mahasiswa → Skripsi → Bimbingan
+
+Faculty admin scope:
+  User → AdminFakultas → Fakultas → Prodi → Mahasiswa
+```
+
+---
+
+## 3.5 Composite Unique Constraints
+
+The database uses composite unique constraints to enforce business rules at the database level:
+
+| Table | Columns | Business Rule |
+|-------|---------|---------------|
+| `krs` | `(mahasiswa_id, tahun_akademik_id)` | One KRS per student per academic period |
+| `krs_detail` | `(krs_id, kelas_id)` | Cannot register same class twice in one KRS |
+| `nilai` | `(mahasiswa_id, kelas_id)` | One grade record per student per class |
+| `pertemuan` | `(jadwal_kuliah_id, pertemuan_ke)` | Unique session numbers within a schedule |
+| `presensi` | `(pertemuan_id, mahasiswa_id)` | One attendance record per student per session |
+| `kehadiran_dosen` | `(dosen_id, jadwal_kuliah_id, tanggal)` | One lecturer attendance per schedule per date |
+| `tugas_submission` | `(tugas_id, mahasiswa_id)` | One submission per student per assignment |
+
+These constraints prevent duplicate data at the database level regardless of application-layer validation.
+
+---
+
+## 3.6 Enum Values Reference
+
+### User & Status Enums
+
+| Table.Column | Values | Description |
+|-------------|--------|-------------|
+| `users.role` | `superadmin`, `admin_fakultas`, `dosen`, `mahasiswa` | System-wide role assignment |
+| `dosen.status` | `aktif`, `cuti`, `nonaktif` | Lecturer employment status |
+| `mahasiswa.status` | `aktif`, `cuti`, `lulus`, `do`, `mengundurkan_diri` | Student enrollment status |
+| `mahasiswa.jenis_kelamin` | `L`, `P` | Gender: L=Laki-laki (male), P=Perempuan (female) |
+
+### Academic Enums
+
+| Table.Column | Values | Description |
+|-------------|--------|-------------|
+| `prodi.jenjang` | `S1`, `S2`, `S3`, `D3`, `D4` | Degree level (S=Sarjana/Strata, D=Diploma) |
+| `tahun_akademik.semester` | `ganjil`, `genap` | Odd semester (Aug–Jan), Even semester (Feb–Jul) |
+| `mata_kuliah.jenis` | `wajib`, `pilihan` | Required vs. elective course |
+| `kelas.hari` / `jadwal_kuliah.hari` | `senin`, `selasa`, `rabu`, `kamis`, `jumat` | Day of week (Monday–Friday) |
+
+### Workflow/Status Enums
+
+| Table.Column | Values | Description |
+|-------------|--------|-------------|
+| `krs.status` | `draft`, `pending`, `approved`, `rejected` | KRS approval workflow |
+| `nilai.status` | `draft`, `submitted`, `final` | Grade finalization workflow |
+| `presensi.status` | `hadir`, `sakit`, `izin`, `alpa` | Present, sick, excused, absent |
+| `kehadiran_dosen.status` | `hadir`, `izin`, `sakit` | Lecturer: present, excused, sick |
+| `skripsi.status` | `pengajuan`, `bimbingan`, `seminar_proposal`, `penelitian`, `seminar_hasil`, `sidang`, `revisi`, `selesai` | Thesis lifecycle stages |
+| `kerja_praktek.status` | `pengajuan`, `berlangsung`, `selesai`, `batal` | Internship lifecycle |
+| `bimbingan.status` | `pending`, `approved`, `revision` | Advising session approval |
+| `materi.tipe` | `dokumen`, `video`, `link` | Material type |
+
+---
+
+## 3.7 Factories and Seeders
+
+### 3.7.1 Factory Definitions
+
+The application defines six factories for test data generation:
+
+#### `UserFactory`
+
+```php
+public function definition(): array
+{
+    return [
+        'name'     => fake()->name(),
+        'email'    => fake()->unique()->safeEmail(),
+        'password' => Hash::make('password'),  // all test users share this
+        'role'     => 'mahasiswa',             // default role
+    ];
+}
+```
+
+Default role is `mahasiswa`. To create other roles, override in test setup:
+
+```php
+User::factory()->create(['role' => 'dosen']);
+```
+
+#### `FakultasFactory`
+
+```php
+public function definition(): array
+{
+    return [
+        'nama'          => fake()->company(),
+        'kode_fakultas' => strtoupper(fake()->unique()->lexify('???')),  // 3-char code
+    ];
+}
+```
+
+#### `ProdiFactory`
+
+```php
+public function definition(): array
+{
+    return [
+        'nama'        => fake()->bs(),
+        'kode_prodi'  => strtoupper(fake()->unique()->lexify('?????')),  // 5-char code
+        'jenjang'     => 'S1',
+        'fakultas_id' => Fakultas::factory(),  // auto-creates parent
+    ];
+}
+```
+
+Creates a parent `Fakultas` automatically if no `fakultas_id` is provided.
+
+#### `MahasiswaFactory`
+
+```php
+public function definition(): array
+{
+    return [
+        'nim'          => fake()->unique()->numerify('##########'),  // 10 digits
+        'nama'         => fake()->name(),
+        'semester'     => rand(1, 8),
+        'status'       => 'aktif',
+        'user_id'      => User::factory(),
+        'fakultas_id'  => Fakultas::factory(),
+        'prodi_id'     => Prodi::factory(),
+    ];
+}
+```
+
+Requires `user_id`, `fakultas_id`, and `prodi_id`. Creates parent records automatically via nested factories.
+
+#### `DosenFactory`
+
+```php
+public function definition(): array
+{
+    return [
+        'nidn'                => fake()->unique()->numerify('##########'),
+        'nama'                => fake()->name(),
+        'jabatan_fungsional'  => fake()->randomElement([...]),
+        'status'              => 'aktif',
+        'user_id'             => User::factory(),
+        'fakultas_id'         => Fakultas::factory(),
+    ];
+}
+```
+
+#### `TahunAkademikFactory`
+
+```php
+public function definition(): array
+{
+    $year = fake()->numberBetween(2020, 2025);
+    return [
+        'tahun'           => $year . '/' . ($year + 1),
+        'semester'        => fake()->randomElement(['ganjil', 'genap']),
+        'is_active'       => false,
+        'tanggal_mulai'   => Carbon::create($year, 8, 1),
+        'tanggal_selesai' => Carbon::create($year + 1, 1, 31),
+    ];
+}
+```
+
+Defaults to `is_active = false`. Tests that need an active period must set it explicitly.
+
+### 3.7.2 Missing Factories
+
+The following 20 models lack factories: `Kelas`, `MataKuliah`, `JadwalKuliah`, `Ruangan`, `Krs`, `KrsDetail`, `Nilai`, `Pertemuan`, `Presensi`, `KehadiranDosen`, `Materi`, `Tugas`, `TugasSubmission`, `Skripsi`, `Bimbingan`, `KerjaPraktek`, `LogbookKp`, `ActivityLog`, `AiConversation`, `AdminFakultas`. Tests for these models must create records manually or rely on the seeder's test dataset.
+
+### 3.7.3 Seeders
+
+#### `DatabaseSeeder`
+
+The main seeder calls `RolePermissionSeeder` first, then builds a complete test dataset:
+
+1. Creates roles and permissions
+2. Creates faculty, programs, lecturers, and students
+3. Creates academic periods, courses, classes, and schedules
+4. Generates KRS records, grades, attendance, and other transactional data
+
+#### `RolePermissionSeeder`
+
+Creates the RBAC structure using Spatie's permission package:
+
+| Role | Permissions |
+|------|------------|
+| `superadmin` | 4 permissions (full system access) |
+| `admin_fakultas` | 4 permissions (faculty-scoped management) |
+| `dosen` | 4 permissions (class/grade management) |
+| `mahasiswa` | 4 permissions (self-service access) |
+
+---
+
+## 3.8 Business Rules Encoded in the Database
+
+### 3.8.1 Grade Conversion Table
+
+The application converts numeric scores to letter grades and grade points using this scale:
+
+| Numeric Range | Letter Grade | Grade Point (Bobot) |
+|--------------|-------------|-------------------|
+| 85 – 100 | A | 4.00 |
+| 80 – 84 | A- | 3.75 |
+| 75 – 79 | B+ | 3.50 |
+| 70 – 74 | B | 3.00 |
+| 65 – 69 | C+ | 2.50 |
+| 60 – 64 | C | 2.00 |
+| 55 – 59 | D | 1.00 |
+| 0 – 54 | E | 0.00 |
+
+This conversion is applied in application logic (not stored procedures). The `nilai` table stores all three representations: `nilai_angka`, `nilai_huruf`, and `bobot`.
+
+### 3.8.2 SKS Limits per Semester
+
+The maximum SKS (credit hours) a student can register for depends on their IPS (Indeks Prestasi Semester — semester GPA):
+
+| IPS Range | Max SKS Allowed |
+|-----------|----------------|
+| ≥ 3.51 | 24 |
+| 3.01 – 3.50 | 22 |
+| 2.51 – 3.00 | 20 |
+| 2.01 – 2.50 | 18 |
+| < 2.00 | 14 |
+
+This rule is enforced during KRS creation. The `krs.total_sks` column tracks the running total. First-semester students (no prior IPS) typically receive a default allowance.
+
+### 3.8.3 Graduation Requirements
+
+For the Sistem Informasi program at UNRI (Universitas Riau):
+
+- **Total SKS required:** 144
+- Student status changes to `lulus` upon completion
+
+### 3.8.4 Status Lifecycles
+
+#### KRS Lifecycle
+
+```
+draft ──→ pending ──→ approved
+                  └──→ rejected
+```
+
+- **draft**: Student is selecting courses, can add/remove freely
+- **pending**: Student submitted for advisor review
+- **approved**: Advisor/admin approved the registration
+- **rejected**: Advisor/admin rejected; student revises and resubmits
+
+#### Grade (Nilai) Lifecycle
+
+```
+draft ──→ submitted ──→ final
+```
+
+- **draft**: Lecturer is entering grades, can modify freely
+- **submitted**: Grades submitted for review
+- **final**: Grades locked, visible to students, counted toward GPA
+
+#### Thesis (Skripsi) Lifecycle
+
+```
+pengajuan ──→ bimbingan ──→ seminar_proposal ──→ penelitian
+                                                      │
+              selesai ←── revisi ←── sidang ←── seminar_hasil
+```
+
+| Status | English | Meaning |
+|--------|---------|---------|
+| `pengajuan` | Proposal submission | Initial topic/advisor request |
+| `bimbingan` | Advising | Active consultation with advisor |
+| `seminar_proposal` | Proposal seminar | Public proposal defense |
+| `penelitian` | Research | Active research/implementation |
+| `seminar_hasil` | Results seminar | Presentation of findings |
+| `sidang` | Final defense | Thesis defense examination |
+| `revisi` | Revision | Post-defense corrections |
+| `selesai` | Completed | Thesis accepted and archived |
+
+#### Internship (Kerja Praktek) Lifecycle
+
+```
+pengajuan ──→ berlangsung ──→ selesai
+         └──→ batal
+```
+
+| Status | English | Meaning |
+|--------|---------|---------|
+| `pengajuan` | Application | Student applied for internship |
+| `berlangsung` | In progress | Currently at the company |
+| `selesai` | Completed | Internship finished, report submitted |
+| `batal` | Cancelled | Internship cancelled |
+
+#### Student Status Transitions
+
+```
+aktif ──→ cuti ──→ aktif (return from leave)
+     └──→ lulus (graduated)
+     └──→ do (dropped out)
+     └──→ mengundurkan_diri (resigned)
+```
+
+### 3.8.5 Attendance Rules
+
+- **Minimum attendance:** 75% of total sessions
+- Students below 75% attendance may be barred from final exams
+- Four attendance statuses with different implications:
+
+| Status | Indonesian | Counts as Present | Notes |
+|--------|-----------|-------------------|-------|
+| `hadir` | Present | Yes | Normal attendance |
+| `sakit` | Sick | Conditional | With medical certificate |
+| `izin` | Excused | Conditional | Pre-approved absence |
+| `alpa` | Absent | No | Unexcused absence |
+
+### 3.8.6 Class Capacity Enforcement
+
+The `kelas` table tracks `kapasitas` (max capacity) and `jumlah_mahasiswa` (current count). Application logic checks `jumlah_mahasiswa < kapasitas` before allowing KRS enrollment. The counter is maintained via application code (not database triggers).
+
+---
+
+## 3.9 Schema Design Observations
+
+### Denormalization Choices
+
+1. **Schedule duplication:** Both `kelas` and `jadwal_kuliah` store day/time data. The `kelas` table holds inline schedule fields (`hari`, `jam_mulai`, `jam_selesai`, `ruangan` as string), while `jadwal_kuliah` provides a normalized alternative with FK to `ruangan`. This suggests an evolutionary design where `jadwal_kuliah` replaced the inline approach but the old columns were retained for backward compatibility.
+
+2. **Name duplication:** The `nama` column appears on both `users` and `dosen`/`mahasiswa` tables. The profile tables (`dosen`, `mahasiswa`) carry their own `nama` for display purposes, potentially differing from the `users.name` used for authentication.
+
+3. **Counter caching:** `kelas.jumlah_mahasiswa` is a denormalized counter. The actual count is derivable from `krs_detail` records pointing to this class, but the counter avoids a COUNT query on every enrollment check.
+
+### Cascade Delete Strategy
+
+| FK Delete Behavior | Used For |
+|-------------------|----------|
+| CASCADE | Core ownership (deleting parent removes children). Used for: mahasiswa→krs, kelas→jadwal_kuliah, skripsi→bimbingan, etc. |
+| SET NULL | Optional relationships. Used for: dosen.prodi_id, mahasiswa.dosen_pa_id, skripsi.pembimbing2_id, krs.approved_by |
+
+No RESTRICT constraints are used. This means deleting a faculty will cascade-delete all its programs, students, lecturers, and their associated academic records.
+
+### Polymorphic Relationships
+
+Two tables use polymorphic columns:
+- `notifications` — `notifiable_type` + `notifiable_id` (Laravel standard)
+- `activity_logs` — `model_type` + `model_id` (custom audit log)
+
+### Missing Database-Level Constraints
+
+The following rules are enforced only in application code:
+- Only one `tahun_akademik` can be `is_active = true` (no partial unique index)
+- SKS limit per KRS based on IPS
+- 75% attendance minimum
+- Grade conversion formula
+- Class capacity limits

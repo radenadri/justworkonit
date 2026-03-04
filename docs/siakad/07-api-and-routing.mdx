@@ -1,0 +1,705 @@
+# Chapter 7: Routing Architecture
+
+## 7.1 Overview
+
+SIAKAD is a fully server-rendered Laravel application. Every user-facing endpoint returns an HTML response through Blade templates. There is no `routes/api.php`, no SPA frontend, and no token-based API authentication. The routing layer is organized by user role, with each role receiving its own directory of route files and its own URL prefix.
+
+This chapter covers the file organization, middleware stack, route groups, naming conventions, rate limiting, and RESTful patterns used throughout the application.
+
+## 7.2 Route File Organization
+
+```
+routes/
+│
+├── web.php                          # Entry point: role-based redirects + group includes
+├── auth.php                         # Laravel Breeze authentication (15 routes)
+├── health.php                       # Single JSON health-check endpoint
+├── notification.php                 # Cross-role notification management
+├── profile.php                      # Authenticated user profile CRUD
+│
+├── admin/                           # Admin-scoped routes (superadmin, admin_fakultas)
+│   ├── dashboard.php                #   GET /admin/dashboard
+│   ├── mahasiswa.php                #   Resource + export
+│   ├── dosen.php                    #   Resource + export
+│   ├── user.php                     #   Resource (superadmin entity management)
+│   ├── kelas.php                    #   Resource
+│   ├── jadwal.php                   #   Resource
+│   ├── lms.php                      #   LMS administration
+│   ├── skripsi.php                  #   Thesis management
+│   ├── kerja-praktek.php            #   Internship management
+│   └── master-data/                 #   Reference table CRUD
+│       ├── fakultas.php             #     Resource
+│       ├── prodi.php                #     Resource
+│       ├── mata-kuliah.php          #     Resource
+│       ├── tahun-akademik.php       #     Resource + toggle-active action
+│       └── ruangan.php              #     Resource
+│
+├── dosen/                           # Lecturer-scoped routes
+│   ├── dashboard.php                #   GET /dosen/dashboard
+│   ├── jadwal.php                   #   Schedule view
+│   ├── presensi.php                 #   Attendance (nested: kelas > pertemuan)
+│   ├── penilaian.php                #   Grading (per-student + bulk)
+│   ├── bimbingan.php                #   KRS advising (approve/reject)
+│   ├── kehadiran.php                #   Self check-in/check-out
+│   ├── lms.php                      #   LMS content management
+│   ├── materi.php                   #   Course material management
+│   ├── skripsi.php                  #   Thesis supervision
+│   ├── kerja-praktek.php            #   Internship supervision
+│   └── profile.php                  #   Lecturer profile
+│
+└── mahasiswa/                       # Student-scoped routes
+    ├── dashboard.php                #   GET /mahasiswa/dashboard
+    ├── krs.php                      #   Course registration (store/destroy/submit)
+    ├── khs.php                      #   Semester grade report
+    ├── transkrip.php                #   Full academic transcript
+    ├── jadwal.php                   #   Personal class schedule
+    ├── presensi.php                 #   Attendance history
+    ├── biodata.php                  #   Student bio update
+    ├── lms.php                      #   LMS student view
+    ├── tugas.php                    #   Assignment submission
+    ├── skripsi.php                  #   Thesis tracking
+    ├── kerja-praktek.php            #   Internship tracking
+    ├── ai-advisor.php               #   AI academic advisor (chat endpoint)
+    ├── export.php                   #   PDF export (KHS + transcript)
+    ├── notification.php             #   Student notification feed
+    └── profile.php                  #   Student profile
+```
+
+**Total: 42 route files** across 4 directories (root, admin, dosen, mahasiswa).
+
+The rationale for splitting routes into per-role directories:
+
+1. **Middleware isolation** — Each directory inherits its parent group's middleware. A route file inside `routes/dosen/` never needs to declare `role:dosen` middleware; it is applied at the group level in `web.php`.
+2. **Developer navigation** — When a developer works on the grading feature for lecturers, they open `routes/dosen/penilaian.php` directly. No scrolling through a monolithic 500-line route file.
+3. **Merge conflict reduction** — Feature branches that modify admin routes do not conflict with branches modifying student routes.
+4. **Access audit** — To audit every endpoint accessible to students, read the files in `routes/mahasiswa/`. No grep required.
+
+## 7.3 Middleware Stack
+
+### 7.3.1 Request Flow Diagram
+
+```
+                         ┌───────────────────────┐
+                         │   Incoming HTTP Request │
+                         └───────────┬───────────┘
+                                     │
+                         ┌───────────▼───────────┐
+                         │   Global Middleware     │
+                         │  ┌───────────────────┐ │
+                         │  │ TrustProxies       │ │
+                         │  │ HandleCors         │ │
+                         │  │ PreventRequestsDur │ │
+                         │  │   ingMaintenance   │ │
+                         │  │ ValidatePostSize   │ │
+                         │  │ TrimStrings        │ │
+                         │  │ ConvertEmptyStrings│ │
+                         │  │   ToNull           │ │
+                         │  └───────────────────┘ │
+                         └───────────┬───────────┘
+                                     │
+                    ┌────────────────┼────────────────┐
+                    │                │                 │
+              ┌─────▼─────┐  ┌──────▼──────┐  ┌──────▼──────┐
+              │  Guest     │  │ Auth Group  │  │  Health     │
+              │  (auth.php)│  │             │  │  (No auth)  │
+              │            │  │ StartSession│  │             │
+              │ login,     │  │ ShareErrors │  │ Returns JSON│
+              │ register,  │  │ VerifyCsrf  │  │ status      │
+              │ password   │  │ SubstResp   │  └─────────────┘
+              │ reset      │  │             │
+              └────────────┘  └──────┬──────┘
+                                     │
+                         ┌───────────▼───────────┐
+                         │   auth + verified      │
+                         │   (EnsureEmailVerified)│
+                         └───────────┬───────────┘
+                                     │
+              ┌──────────────────────┼──────────────────────┐
+              │                      │                      │
+        ┌─────▼─────┐         ┌─────▼──────┐        ┌──────▼─────┐
+        │ role:admin │         │ role:dosen  │        │role:mhs    │
+        │ _fakultas, │         │             │        │            │
+        │ superadmin │         │ /dosen/*    │        │/mahasiswa/*│
+        │            │         │             │        │            │
+        │ /admin/*   │         └─────┬──────┘        └──────┬─────┘
+        └─────┬─────┘               │                      │
+              │                      │                      │
+        ┌─────▼──────┐        ┌─────▼──────┐        ┌──────▼──────┐
+        │ FakultasSco │        │ Rate limit │        │ Rate limit  │
+        │ peMiddleware│        │ (specific  │        │ (specific   │
+        │ (scopes     │        │  routes)   │        │  routes)    │
+        │  queries to │        └────────────┘        └─────────────┘
+        │  faculty)   │
+        └─────┬──────┘
+              │
+        ┌─────▼──────┐
+        │ Rate limit  │
+        │ sensitive:  │
+        │ 30/min      │
+        └─────────────┘
+```
+
+### 7.3.2 Middleware Applied Per Group
+
+| Route Group | Middleware Stack | Purpose |
+|-------------|----------------|---------|
+| Auth (guest) | `guest` | Prevent authenticated users from accessing login/register |
+| Auth (protected) | `auth` | Require authentication for logout, password update |
+| Admin | `auth`, `verified`, `role:admin_fakultas,superadmin` | Restrict to admin roles, require email verification |
+| Dosen | `auth`, `verified`, `role:dosen` | Restrict to lecturers |
+| Mahasiswa | `auth`, `verified`, `role:mahasiswa` | Restrict to students |
+| Profile | `auth` | Any authenticated user can manage their profile |
+| Notification | `auth` | Any authenticated user can manage notifications |
+| Health | *(none)* | Public endpoint, no authentication required |
+
+### 7.3.3 Custom Middleware
+
+| Middleware | Class | Behavior |
+|------------|-------|----------|
+| `role` | `RoleMiddleware` | Checks `auth()->user()->role` against a comma-separated list of allowed roles. Returns 403 on mismatch. |
+| `FakultasScope` | `FakultasScopeMiddleware` | For `admin_fakultas` users, automatically scopes Eloquent queries to the user's assigned `fakultas_id`. Superadmins bypass this scope. |
+
+The `role` middleware accepts multiple roles as comma-separated values. In the admin group definition, `role:admin_fakultas,superadmin` grants access to both faculty admins and superadmins. A dosen attempting to access `/admin/dashboard` receives a 403 Forbidden response.
+
+## 7.4 Root Route: Role-Based Redirect
+
+The root URL (`/`) does not render a view. It inspects the authenticated user's role and issues a redirect:
+
+```php
+Route::get('/', function () {
+    $user = auth()->user();
+
+    return match ($user->role) {
+        'superadmin', 'admin_fakultas' => redirect()->route('admin.dashboard'),
+        'dosen'                        => redirect()->route('dosen.dashboard'),
+        'mahasiswa'                    => redirect()->route('mahasiswa.dashboard'),
+        default                        => redirect()->route('login'),
+    };
+});
+```
+
+Unauthenticated visitors are redirected to `/login`. There is no public-facing landing page.
+
+## 7.5 Complete Route Reference
+
+### 7.5.1 Authentication Routes
+
+Source: `routes/auth.php` (standard Laravel Breeze scaffold)
+
+| Method | URI | Controller | Route Name |
+|--------|-----|------------|------------|
+| GET | `/register` | `RegisteredUserController@create` | `register` |
+| POST | `/register` | `RegisteredUserController@store` | — |
+| GET | `/login` | `AuthenticatedSessionController@create` | `login` |
+| POST | `/login` | `AuthenticatedSessionController@store` | — |
+| POST | `/logout` | `AuthenticatedSessionController@destroy` | `logout` |
+| GET | `/forgot-password` | `PasswordResetLinkController@create` | `password.request` |
+| POST | `/forgot-password` | `PasswordResetLinkController@store` | `password.email` |
+| GET | `/reset-password/{token}` | `NewPasswordController@create` | `password.reset` |
+| POST | `/reset-password` | `NewPasswordController@store` | `password.store` |
+| GET | `/verify-email` | `EmailVerificationPromptController` | `verification.notice` |
+| GET | `/verify-email/{id}/{hash}` | `VerifyEmailController` | `verification.verify` |
+| POST | `/email/verification-notification` | `EmailVerificationNotificationController@store` | `verification.send` |
+| GET | `/confirm-password` | `ConfirmablePasswordController@show` | `password.confirm` |
+| POST | `/confirm-password` | `ConfirmablePasswordController@store` | — |
+| PUT | `/password` | `PasswordController@update` | `password.update` |
+
+These routes are unmodified from the Breeze scaffold. The registration flow creates a `User` record; associated `Mahasiswa` or `Dosen` profile records are created separately through admin management.
+
+### 7.5.2 Admin Routes
+
+Prefix: `/admin` | Middleware: `auth`, `verified`, `role:admin_fakultas,superadmin`
+
+| Method | URI | Controller | Route Name |
+|--------|-----|------------|------------|
+| GET | `/admin/dashboard` | `Admin\DashboardController@index` | `admin.dashboard` |
+
+**Mahasiswa Management:**
+
+| Method | URI | Controller | Route Name |
+|--------|-----|------------|------------|
+| GET | `/admin/mahasiswa` | `Admin\MahasiswaController@index` | `admin.mahasiswa.index` |
+| GET | `/admin/mahasiswa/create` | `Admin\MahasiswaController@create` | `admin.mahasiswa.create` |
+| POST | `/admin/mahasiswa` | `Admin\MahasiswaController@store` | `admin.mahasiswa.store` |
+| GET | `/admin/mahasiswa/{mahasiswa}` | `Admin\MahasiswaController@show` | `admin.mahasiswa.show` |
+| GET | `/admin/mahasiswa/{mahasiswa}/edit` | `Admin\MahasiswaController@edit` | `admin.mahasiswa.edit` |
+| PUT | `/admin/mahasiswa/{mahasiswa}` | `Admin\MahasiswaController@update` | `admin.mahasiswa.update` |
+| DELETE | `/admin/mahasiswa/{mahasiswa}` | `Admin\MahasiswaController@destroy` | `admin.mahasiswa.destroy` |
+| GET | `/admin/mahasiswa/export` | `Admin\MahasiswaController@export` | `admin.mahasiswa.export` |
+
+**Dosen Management:**
+
+| Method | URI | Controller | Route Name |
+|--------|-----|------------|------------|
+| GET | `/admin/dosen` | `Admin\DosenController@index` | `admin.dosen.index` |
+| GET | `/admin/dosen/create` | `Admin\DosenController@create` | `admin.dosen.create` |
+| POST | `/admin/dosen` | `Admin\DosenController@store` | `admin.dosen.store` |
+| GET | `/admin/dosen/{dosen}` | `Admin\DosenController@show` | `admin.dosen.show` |
+| GET | `/admin/dosen/{dosen}/edit` | `Admin\DosenController@edit` | `admin.dosen.edit` |
+| PUT | `/admin/dosen/{dosen}` | `Admin\DosenController@update` | `admin.dosen.update` |
+| DELETE | `/admin/dosen/{dosen}` | `Admin\DosenController@destroy` | `admin.dosen.destroy` |
+| GET | `/admin/dosen/export` | `Admin\DosenController@export` | `admin.dosen.export` |
+
+**User Management** (resource): `admin.users.*`
+
+**Class Management** (resource): `admin.kelas.*`
+
+**Schedule Management** (resource): `admin.jadwal.*`
+
+**Master Data — Fakultas** (resource): `admin.fakultas.*`
+
+**Master Data — Prodi** (resource): `admin.prodi.*`
+
+**Master Data — Mata Kuliah** (resource): `admin.mata-kuliah.*`
+
+**Master Data — Tahun Akademik** (resource + custom action):
+
+| Method | URI | Controller | Route Name |
+|--------|-----|------------|------------|
+| GET | `/admin/tahun-akademik` | `Admin\TahunAkademikController@index` | `admin.tahun-akademik.index` |
+| POST | `/admin/tahun-akademik` | `Admin\TahunAkademikController@store` | `admin.tahun-akademik.store` |
+| PUT | `/admin/tahun-akademik/{tahunAkademik}` | `Admin\TahunAkademikController@update` | `admin.tahun-akademik.update` |
+| DELETE | `/admin/tahun-akademik/{tahunAkademik}` | `Admin\TahunAkademikController@destroy` | `admin.tahun-akademik.destroy` |
+| POST | `/admin/tahun-akademik/{id}/toggle` | `Admin\TahunAkademikController@toggleActive` | `admin.tahun-akademik.toggle` |
+
+The `toggleActive` action switches the `is_active` flag on a `TahunAkademik` record. Only one academic year should be active at a time; the controller deactivates all other records before activating the selected one.
+
+**Master Data — Ruangan** (resource): `admin.ruangan.*`
+
+**LMS, Skripsi, Kerja Praktek** (full CRUD): `admin.lms.*`, `admin.skripsi.*`, `admin.kerja-praktek.*`
+
+### 7.5.3 Dosen Routes
+
+Prefix: `/dosen` | Middleware: `auth`, `verified`, `role:dosen`
+
+| Method | URI | Controller | Route Name |
+|--------|-----|------------|------------|
+| GET | `/dosen/dashboard` | `Dosen\DashboardController@index` | `dosen.dashboard` |
+
+**Schedule:**
+
+| Method | URI | Controller | Route Name |
+|--------|-----|------------|------------|
+| GET | `/dosen/jadwal` | `Dosen\JadwalController@index` | `dosen.jadwal.index` |
+
+**Attendance (Presensi) — nested resource pattern:**
+
+| Method | URI | Controller | Route Name |
+|--------|-----|------------|------------|
+| GET | `/dosen/presensi` | `Dosen\PresensiController@index` | `dosen.presensi.index` |
+| GET | `/dosen/presensi/{kelas}` | `Dosen\PresensiController@show` | `dosen.presensi.show` |
+| POST | `/dosen/presensi/{kelas}/pertemuan` | `Dosen\PresensiController@storePertemuan` | `dosen.presensi.store-pertemuan` |
+| GET | `/dosen/presensi/{kelas}/pertemuan/{pertemuan}/input` | `Dosen\PresensiController@inputPresensi` | `dosen.presensi.input` |
+| POST | `/dosen/presensi/{kelas}/pertemuan/{pertemuan}/store` | `Dosen\PresensiController@storePresensi` | `dosen.presensi.store` |
+
+This is the deepest nesting in the application. The URL structure models the domain hierarchy: a class (`kelas`) has many meetings (`pertemuan`), and each meeting has individual attendance records.
+
+**Grading (Penilaian):**
+
+| Method | URI | Controller | Route Name |
+|--------|-----|------------|------------|
+| GET | `/dosen/penilaian` | `Dosen\PenilaianController@index` | `dosen.penilaian.index` |
+| GET | `/dosen/penilaian/{kelas}` | `Dosen\PenilaianController@show` | `dosen.penilaian.show` |
+| PUT | `/dosen/penilaian/{kelas}/{mahasiswa}` | `Dosen\PenilaianController@update` | `dosen.penilaian.update` |
+| POST | `/dosen/penilaian/{kelas}/bulk` | `Dosen\PenilaianController@bulkUpdate` | `dosen.penilaian.bulk-update` |
+
+The `bulkUpdate` action accepts an array of student-grade pairs in a single POST request. This avoids requiring lecturers to submit grades one student at a time.
+
+**Advising (Bimbingan):**
+
+| Method | URI | Controller | Route Name |
+|--------|-----|------------|------------|
+| GET | `/dosen/bimbingan` | `Dosen\BimbinganController@index` | `dosen.bimbingan.index` |
+| POST | `/dosen/bimbingan/krs/{krs}/approve` | `Dosen\BimbinganController@approveKrs` | `dosen.bimbingan.approve-krs` |
+| POST | `/dosen/bimbingan/krs/{krs}/reject` | `Dosen\BimbinganController@rejectKrs` | `dosen.bimbingan.reject-krs` |
+
+Approve and reject are modeled as separate POST endpoints rather than a single PATCH with a status field. This makes the actions explicit in both the URL and the route name.
+
+**Lecturer Self-Attendance (Kehadiran):**
+
+| Method | URI | Controller | Route Name |
+|--------|-----|------------|------------|
+| GET | `/dosen/kehadiran` | `Dosen\KehadiranController@index` | `dosen.kehadiran.index` |
+| POST | `/dosen/kehadiran/checkin` | `Dosen\KehadiranController@checkin` | `dosen.kehadiran.checkin` |
+| POST | `/dosen/kehadiran/checkout` | `Dosen\KehadiranController@checkout` | `dosen.kehadiran.checkout` |
+
+**LMS, Materi, Skripsi, Kerja Praktek** (full CRUD): `dosen.lms.*`, `dosen.materi.*`, `dosen.skripsi.*`, `dosen.kerja-praktek.*`
+
+### 7.5.4 Mahasiswa Routes
+
+Prefix: `/mahasiswa` | Middleware: `auth`, `verified`, `role:mahasiswa`
+
+| Method | URI | Controller | Route Name |
+|--------|-----|------------|------------|
+| GET | `/mahasiswa/dashboard` | `Mahasiswa\DashboardController@index` | `mahasiswa.dashboard` |
+
+**KRS (Course Registration):**
+
+| Method | URI | Controller | Route Name |
+|--------|-----|------------|------------|
+| GET | `/mahasiswa/krs` | `Mahasiswa\KrsController@index` | `mahasiswa.krs.index` |
+| POST | `/mahasiswa/krs` | `Mahasiswa\KrsController@store` | `mahasiswa.krs.store` |
+| DELETE | `/mahasiswa/krs/{krsDetail}` | `Mahasiswa\KrsController@destroy` | `mahasiswa.krs.destroy` |
+| POST | `/mahasiswa/krs/submit` | `Mahasiswa\KrsController@submit` | `mahasiswa.krs.submit` |
+
+KRS uses a non-standard resource pattern. There is no `update` action because students cannot edit a course registration — they delete and re-add. The `submit` action transitions the KRS from draft to pending-approval status; this is a one-way state change.
+
+**Academic Records:**
+
+| Method | URI | Controller | Route Name |
+|--------|-----|------------|------------|
+| GET | `/mahasiswa/khs` | `Mahasiswa\KhsController@index` | `mahasiswa.khs.index` |
+| GET | `/mahasiswa/transkrip` | `Mahasiswa\TranskripController@index` | `mahasiswa.transkrip.index` |
+| GET | `/mahasiswa/jadwal` | `Mahasiswa\JadwalController@index` | `mahasiswa.jadwal.index` |
+
+All three are read-only. Students cannot modify grades, transcripts, or schedules.
+
+**Attendance:**
+
+| Method | URI | Controller | Route Name |
+|--------|-----|------------|------------|
+| GET | `/mahasiswa/presensi` | `Mahasiswa\PresensiController@index` | `mahasiswa.presensi.index` |
+| GET | `/mahasiswa/presensi/{kelas}` | `Mahasiswa\PresensiController@show` | `mahasiswa.presensi.show` |
+
+Read-only attendance history. Students view their attendance records but cannot modify them.
+
+**Biodata:**
+
+| Method | URI | Controller | Route Name |
+|--------|-----|------------|------------|
+| GET | `/mahasiswa/biodata` | `Mahasiswa\BiodataController@index` | `mahasiswa.biodata.index` |
+| PUT | `/mahasiswa/biodata` | `Mahasiswa\BiodataController@update` | `mahasiswa.biodata.update` |
+
+The biodata endpoint does not follow standard resource conventions — there is no `{id}` parameter because a student can only edit their own biodata. The controller resolves the student record from the authenticated user.
+
+**AI Academic Advisor:**
+
+| Method | URI | Controller | Route Name |
+|--------|-----|------------|------------|
+| GET | `/mahasiswa/ai-advisor` | `Mahasiswa\AiAdvisorController@index` | `mahasiswa.ai-advisor.index` |
+| POST | `/mahasiswa/ai-advisor/chat` | `Mahasiswa\AiAdvisorController@chat` | `mahasiswa.ai-advisor.chat` |
+
+The `chat` endpoint is one of the few routes that returns JSON rather than HTML. It accepts a message via AJAX and returns the AI response as a JSON payload for client-side rendering.
+
+**Document Export:**
+
+| Method | URI | Controller | Route Name |
+|--------|-----|------------|------------|
+| GET | `/mahasiswa/export/khs` | `Mahasiswa\ExportController@exportKhs` | `mahasiswa.export.khs` |
+| GET | `/mahasiswa/export/transkrip` | `Mahasiswa\ExportController@exportTranskrip` | `mahasiswa.export.transkrip` |
+
+Both return downloadable PDF files rather than HTML views.
+
+**LMS, Tugas, Skripsi, Kerja Praktek, Notifications**: `mahasiswa.lms.*`, `mahasiswa.tugas.*`, `mahasiswa.skripsi.*`, `mahasiswa.kerja-praktek.*`, `mahasiswa.notifications.*`
+
+### 7.5.5 Shared Routes
+
+These routes are available to all authenticated users regardless of role.
+
+| Method | URI | Controller | Route Name |
+|--------|-----|------------|------------|
+| GET | `/health` | `HealthController@check` | `health.check` |
+| GET | `/profile` | `ProfileController@edit` | `profile.edit` |
+| PUT | `/profile` | `ProfileController@update` | `profile.update` |
+| DELETE | `/profile` | `ProfileController@destroy` | `profile.destroy` |
+| POST | `/notifications/{id}/read` | `NotificationController@markAsRead` | `notifications.read` |
+| POST | `/notifications/read-all` | `NotificationController@markAllAsRead` | `notifications.read-all` |
+
+The health endpoint is the only completely public route (no authentication). It returns a JSON object with application status, database connectivity, and uptime metrics.
+
+## 7.6 Named Route Conventions
+
+Every route in the application follows a consistent naming pattern:
+
+```
+{role}.{module}.{action}
+```
+
+Examples:
+
+| Route Name | Pattern | Meaning |
+|------------|---------|---------|
+| `admin.mahasiswa.index` | role.module.action | Admin viewing student list |
+| `dosen.presensi.store-pertemuan` | role.module.action | Lecturer creating a meeting session |
+| `mahasiswa.krs.submit` | role.module.action | Student submitting KRS for approval |
+| `admin.tahun-akademik.toggle` | role.module.action | Admin toggling academic year status |
+
+Shared routes omit the role prefix: `profile.edit`, `notifications.read`, `health.check`.
+
+Standard resource action names follow Laravel conventions: `index`, `create`, `store`, `show`, `edit`, `update`, `destroy`. Custom actions use hyphenated names: `store-pertemuan`, `approve-krs`, `bulk-update`.
+
+**Usage in Blade templates:**
+
+```php
+{{-- Link to student dashboard --}}
+<a href="{{ route('mahasiswa.dashboard') }}">Dashboard</a>
+
+{{-- Form action for KRS submission --}}
+<form action="{{ route('mahasiswa.krs.submit') }}" method="POST">
+
+{{-- Admin edit link with route model binding --}}
+<a href="{{ route('admin.mahasiswa.edit', $mahasiswa) }}">Edit</a>
+```
+
+This naming convention provides two guarantees:
+1. Route names are globally unique (no collision between `admin.jadwal.index` and `dosen.jadwal.index`).
+2. A developer can determine the required role and module from the route name alone.
+
+## 7.7 Rate Limiting
+
+Rate limiters are defined in `bootstrap/app.php` using Laravel's `RateLimiter` facade. Each limiter is keyed by the authenticated user's ID, so rate limits apply per-user rather than per-IP.
+
+### 7.7.1 Rate Limiter Definitions
+
+| Limiter Name | Limit | Window | Applied To |
+|-------------|-------|--------|------------|
+| `krs` | 10 requests | 1 minute | KRS store, destroy, submit |
+| `penilaian` | 20 requests | 1 minute | Grade update, bulk grade update |
+| `sensitive` | 30 requests | 1 minute | Admin write operations (store, update, destroy) |
+| `ai-chat` | 10 requests | 1 minute | AI advisor chat endpoint |
+
+### 7.7.2 Rationale for Each Limiter
+
+**`krs` (10/min):** Course registration modifies enrollment records, adjusts class capacity counts, and triggers advisor notifications. Limiting to 10 requests per minute prevents accidental duplicate enrollments from rapid form resubmission and bounds the write load during peak registration periods (the first days of each semester).
+
+**`penilaian` (20/min):** Grade updates are higher-frequency because lecturers may update individual student grades in succession. The 20/min limit accommodates normal grading workflows while preventing bulk scripted submissions.
+
+**`sensitive` (30/min):** Admin write operations cover a wide range of CRUD actions. The limit is higher because admins perform batch data entry (e.g., creating 20 class sections for a new semester).
+
+**`ai-chat` (10/min):** The AI advisor calls an external LLM API. Each request incurs cost and latency. The 10/min limit prevents runaway usage and keeps API costs predictable.
+
+### 7.7.3 Rate Limiter Application
+
+Rate limiters are applied as middleware on specific route definitions, not at the group level:
+
+```php
+// In routes/mahasiswa/krs.php
+Route::middleware('throttle:krs')->group(function () {
+    Route::post('/krs', [KrsController::class, 'store'])->name('mahasiswa.krs.store');
+    Route::delete('/krs/{krsDetail}', [KrsController::class, 'destroy'])->name('mahasiswa.krs.destroy');
+    Route::post('/krs/submit', [KrsController::class, 'submit'])->name('mahasiswa.krs.submit');
+});
+
+// The index (GET) route sits outside the throttle group:
+Route::get('/krs', [KrsController::class, 'index'])->name('mahasiswa.krs.index');
+```
+
+Read-only `GET` routes are not rate-limited. Only state-changing operations (POST, PUT, DELETE) receive rate limits.
+
+## 7.8 Resource Routes vs. Custom Routes
+
+### 7.8.1 Full Resource Routes
+
+The following controllers use Laravel's `Route::resource()` and expose all 7 RESTful actions:
+
+| Controller | Resource Name | Generated Routes |
+|------------|--------------|-----------------|
+| `Admin\MahasiswaController` | `mahasiswa` | index, create, store, show, edit, update, destroy |
+| `Admin\DosenController` | `dosen` | index, create, store, show, edit, update, destroy |
+| `Admin\UserController` | `users` | index, create, store, show, edit, update, destroy |
+| `Admin\KelasController` | `kelas` | index, create, store, show, edit, update, destroy |
+| `Admin\JadwalKuliahController` | `jadwal` | index, create, store, show, edit, update, destroy |
+| `Admin\FakultasController` | `fakultas` | index, create, store, show, edit, update, destroy |
+| `Admin\ProdiController` | `prodi` | index, create, store, show, edit, update, destroy |
+| `Admin\MataKuliahController` | `mata-kuliah` | index, create, store, show, edit, update, destroy |
+| `Admin\TahunAkademikController` | `tahun-akademik` | index, create, store, show, edit, update, destroy |
+| `Admin\RuanganController` | `ruangan` | index, create, store, show, edit, update, destroy |
+
+All full resource controllers are in the Admin namespace. Admin is the only role that performs complete CRUD on master data entities.
+
+### 7.8.2 Resource + Extra Actions
+
+Some admin resources extend the standard 7 actions with additional endpoints:
+
+| Controller | Extra Action | Method | URI Suffix |
+|------------|-------------|--------|------------|
+| `Admin\MahasiswaController` | `export` | GET | `/export` |
+| `Admin\DosenController` | `export` | GET | `/export` |
+| `Admin\TahunAkademikController` | `toggleActive` | POST | `/{id}/toggle` |
+
+The export routes must be registered *before* the resource routes to prevent `export` from being interpreted as a `{mahasiswa}` parameter by the `show` route.
+
+### 7.8.3 Custom Route Patterns
+
+Dosen and Mahasiswa controllers do not use `Route::resource()`. Their routes are defined individually because:
+
+1. **Partial CRUD** — Students can store and destroy KRS items but not update them. Lecturers can view and update grades but not create or delete grade records.
+2. **Non-standard nesting** — Attendance routes nest `pertemuan` (meetings) under `kelas` (classes), which does not map to Laravel's resource nesting.
+3. **Action-specific endpoints** — KRS submit, KRS approve/reject, check-in/check-out are domain actions that do not correspond to REST verbs.
+
+## 7.9 URL Patterns and RESTful Conventions
+
+### 7.9.1 URL Structure
+
+```
+/{role}/{module}/{resource?}/{action?}
+```
+
+Examples:
+
+```
+/admin/mahasiswa                     → list all students
+/admin/mahasiswa/create              → show create form
+/admin/mahasiswa/42                  → show student #42
+/admin/mahasiswa/42/edit             → show edit form for student #42
+
+/dosen/presensi/5/pertemuan/3/input  → attendance input for class 5, meeting 3
+
+/mahasiswa/krs                       → view current KRS
+/mahasiswa/export/khs                → download KHS as PDF
+```
+
+### 7.9.2 Kebab-Case Resource Names
+
+Multi-word resource names use kebab-case in URLs:
+
+| URL Segment | Model |
+|-------------|-------|
+| `mata-kuliah` | `MataKuliah` |
+| `tahun-akademik` | `TahunAkademik` |
+| `kerja-praktek` | `KerjaPraktek` |
+| `ai-advisor` | `AiAdvisor` |
+
+This follows Laravel's default behavior when a hyphenated resource name is passed to `Route::resource()`.
+
+### 7.9.3 Deviations from Strict REST
+
+| Pattern | Standard REST | SIAKAD Pattern | Reason |
+|---------|-------------|----------------|--------|
+| KRS submit | `PATCH /krs/{id}` with status field | `POST /krs/submit` | Submit is a one-time state transition, not a partial update |
+| KRS approve | `PATCH /krs/{id}` | `POST /bimbingan/krs/{krs}/approve` | Approval is a separate domain concept from KRS editing |
+| Toggle active | `PATCH /tahun-akademik/{id}` | `POST /tahun-akademik/{id}/toggle` | Toggle implies idempotent state flip, distinct from a general update |
+| Bulk grade | `PUT` per student | `POST /penilaian/{kelas}/bulk` | Batch operation avoids N individual requests |
+| Check-in/out | `POST /kehadiran` with type field | `POST /kehadiran/checkin` and `/checkout` | Separate endpoints make the action explicit |
+
+These deviations prioritize clarity of intent over strict RESTful purity. Each custom endpoint names the action being performed.
+
+## 7.10 Route Model Binding
+
+SIAKAD uses Laravel's implicit route model binding. Route parameters are type-hinted in controller methods, and Laravel automatically resolves the Eloquent model by its primary key.
+
+### 7.10.1 Standard Binding
+
+```php
+// Route definition
+Route::get('/admin/mahasiswa/{mahasiswa}', [MahasiswaController::class, 'show']);
+
+// Controller method
+public function show(Mahasiswa $mahasiswa): View
+{
+    return view('admin.mahasiswa.show', compact('mahasiswa'));
+}
+```
+
+Laravel resolves `{mahasiswa}` to a `Mahasiswa` model instance by querying `WHERE id = ?`. If no matching record exists, Laravel returns a 404 response automatically.
+
+### 7.10.2 Nested Binding
+
+The attendance routes bind two models in a single URL:
+
+```php
+// Route: /dosen/presensi/{kelas}/pertemuan/{pertemuan}/input
+public function inputPresensi(Kelas $kelas, Pertemuan $pertemuan): View
+{
+    // Both $kelas and $pertemuan are resolved automatically
+}
+```
+
+### 7.10.3 Implicit Scoping
+
+For nested resources, Laravel can enforce that the child model belongs to the parent. If `Pertemuan` has a `kelas_id` foreign key, Laravel validates that the resolved `Pertemuan` actually belongs to the specified `Kelas`. A mismatch results in a 404.
+
+### 7.10.4 Auth-Scoped Binding
+
+Some routes do not use route parameters at all but resolve the resource from the authenticated user:
+
+```php
+// Mahasiswa biodata — no {id} in URL
+Route::get('/biodata', [BiodataController::class, 'index']);
+
+// Controller resolves from auth
+public function index(): View
+{
+    $mahasiswa = auth()->user()->mahasiswa;
+    return view('mahasiswa.biodata.index', compact('mahasiswa'));
+}
+```
+
+This pattern appears in biodata, KRS, KHS, and transcript routes. Students always view their own data; the URL does not expose an ID parameter.
+
+## 7.11 Cross-Role Route Access Patterns
+
+### 7.11.1 Access Matrix
+
+```
+                    ┌──────────┬──────────┬──────────┬────────────┐
+                    │Superadmin│Admin Fak.│  Dosen   │ Mahasiswa  │
+┌───────────────────┼──────────┼──────────┼──────────┼────────────┤
+│ /admin/*          │    ✓     │    ✓*    │    ✗     │     ✗      │
+│ /dosen/*          │    ✗     │    ✗     │    ✓     │     ✗      │
+│ /mahasiswa/*      │    ✗     │    ✗     │    ✗     │     ✓      │
+│ /profile          │    ✓     │    ✓     │    ✓     │     ✓      │
+│ /notifications/*  │    ✓     │    ✓     │    ✓     │     ✓      │
+│ /health           │    ✓     │    ✓     │    ✓     │     ✓      │
+│ /login, /register │    ✗†    │    ✗†    │    ✗†    │     ✗†     │
+└───────────────────┴──────────┴──────────┴──────────┴────────────┘
+
+✓  = Full access
+✓* = Access scoped to own faculty via FakultasScopeMiddleware
+✗  = 403 Forbidden
+✗† = Redirected away (already authenticated)
+```
+
+### 7.11.2 Faculty Scoping for Admin Routes
+
+When an `admin_fakultas` user accesses `/admin/mahasiswa`, the `FakultasScopeMiddleware` modifies the underlying Eloquent queries to only return students whose `prodi.fakultas_id` matches the admin's own `fakultas_id`. The admin sees and can modify only students within their faculty.
+
+Superadmins bypass this scoping entirely and see all records across all faculties.
+
+### 7.11.3 No Cross-Role Data Sharing via Routes
+
+There is no route that lets a lecturer view the admin dashboard, or lets an admin submit a KRS. Each role's routes are completely isolated. Shared functionality (profile management, notifications) lives in role-neutral routes at the root level.
+
+The LMS, Skripsi, and Kerja Praktek modules appear under all three role prefixes (`/admin/lms`, `/dosen/lms`, `/mahasiswa/lms`), but each uses a different controller class with different permissions. The admin controller provides full CRUD, the dosen controller provides management actions, and the mahasiswa controller provides read-only access with submission capability.
+
+## 7.12 No API Routes
+
+SIAKAD does not define any routes in `routes/api.php`. The file either does not exist or is empty. All HTTP interactions follow the traditional server-rendered pattern:
+
+```
+Browser → GET /mahasiswa/krs → Server renders Blade view → Full HTML response
+Browser → POST /mahasiswa/krs → Server processes form → Redirect with flash message
+```
+
+Three endpoints deviate from this pattern by returning non-HTML responses:
+
+| Endpoint | Response Type | Reason |
+|----------|--------------|--------|
+| `GET /health` | JSON | Machine-readable status for monitoring tools |
+| `POST /mahasiswa/ai-advisor/chat` | JSON | AJAX-driven chat interface requires structured data |
+| `GET /mahasiswa/export/*` | PDF (binary) | Downloadable document generation |
+
+Some admin controllers return partial HTML via AJAX for dynamic table filtering, but these are still Blade-rendered fragments — not JSON API responses.
+
+This architecture means:
+- No CORS configuration is needed.
+- No API authentication tokens (Sanctum, Passport) are used.
+- Every form submission uses CSRF tokens via Blade's `@csrf` directive.
+- State management relies on server-side sessions, not client-side tokens.
+- All validation errors are returned as redirect-back responses with flashed error bags, following Laravel's standard `$request->validate()` behavior.
+
+## 7.13 Summary
+
+| Metric | Value |
+|--------|-------|
+| Total route files | 42 |
+| Authentication routes | 15 (Breeze standard) |
+| Admin routes | ~70 (10 resource controllers + custom actions) |
+| Dosen routes | ~30 (custom-defined, no full resources) |
+| Mahasiswa routes | ~25 (custom-defined, partial CRUD) |
+| Shared routes | 6 (profile, notifications, health) |
+| Rate limiters | 4 (krs, penilaian, sensitive, ai-chat) |
+| Custom middleware | 2 (RoleMiddleware, FakultasScopeMiddleware) |
+| API routes | 0 |
+
+The routing architecture reflects SIAKAD's nature as a traditional server-rendered application. The per-role directory structure, combined with group-level middleware and consistent naming conventions, produces an auditable and navigable route system where every endpoint's access requirements are determined by its file location.

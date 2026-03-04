@@ -1,0 +1,708 @@
+# Chapter 4: Authentication and Authorization
+
+## 4.1 Authentication Architecture
+
+SIAKAD uses Laravel Breeze with server-side session authentication. There are no API tokens, no OAuth, no JWT — all requests authenticate through PHP sessions stored in the database, validated via cookies and CSRF tokens.
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        CLIENT (Browser)                             │
+│  ┌─────────────┐  ┌──────────────────┐  ┌───────────────────────┐  │
+│  │ Login Form   │  │ CSRF Token       │  │ Session Cookie        │  │
+│  │ (email/pass) │  │ (hidden field)   │  │ (siakad_session)      │  │
+│  └──────┬──────┘  └────────┬─────────┘  └───────────┬───────────┘  │
+│         │                  │                        │              │
+└─────────┼──────────────────┼────────────────────────┼──────────────┘
+          │                  │                        │
+          ▼                  ▼                        ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                     LARAVEL MIDDLEWARE STACK                         │
+│                                                                     │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────┐  │
+│  │ VerifyCsrf   │  │ StartSession │  │ AuthenticateSession      │  │
+│  │ Token        │→ │              │→ │                          │  │
+│  └──────────────┘  └──────────────┘  └────────────┬─────────────┘  │
+│                                                    │                │
+│  ┌──────────────┐  ┌──────────────────────────┐   │                │
+│  │ RoleMiddle-  │  │ FakultasScope            │   │                │
+│  │ ware         │← │ Middleware               │←──┘                │
+│  └──────┬───────┘  └──────────────────────────┘                    │
+│         │                                                          │
+└─────────┼──────────────────────────────────────────────────────────┘
+          │
+          ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                         CONTROLLER LAYER                            │
+│                                                                     │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────┐  │
+│  │ Admin/       │  │ Dosen/       │  │ Mahasiswa/               │  │
+│  │ Controllers  │  │ Controllers  │  │ Controllers              │  │
+│  │              │  │              │  │                          │  │
+│  │ Inline:      │  │ Inline:      │  │ Inline:                  │  │
+│  │ role check   │  │ dosen_id     │  │ mahasiswa_id             │  │
+│  │ via middle-  │  │ ownership    │  │ ownership                │  │
+│  │ ware only    │  │ filter       │  │ filter                   │  │
+│  └──────────────┘  └──────────────┘  └──────────────────────────┘  │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+          │
+          ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                         DATA LAYER                                  │
+│                                                                     │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────┐  │
+│  │ users table  │  │ sessions     │  │ Eloquent Models          │  │
+│  │ (id, email,  │  │ table        │  │ (Mahasiswa, Dosen,       │  │
+│  │  password,   │  │ (id, user_id,│  │  AdminFakultas)          │  │
+│  │  role)       │  │  payload,    │  │                          │  │
+│  │              │  │  last_active)│  │                          │  │
+│  └──────────────┘  └──────────────┘  └──────────────────────────┘  │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Authentication Configuration Summary
+
+| Setting | Value | Location |
+|---------|-------|----------|
+| Auth guard | `web` (session-based) | `config/auth.php` |
+| User provider | `users` (Eloquent, `App\Models\User`) | `config/auth.php` |
+| Session driver | `database` | `.env` / `config/session.php` |
+| Session table | `sessions` | Migration |
+| Password hashing | bcrypt (default) | `config/hashing.php` |
+| CSRF protection | Enabled (VerifyCsrfToken middleware) | Default Laravel |
+| Auth scaffolding | Laravel Breeze (Blade) | 11 controllers in `app/Http/Controllers/Auth/` |
+
+## 4.2 Session Management
+
+Sessions are stored in the `sessions` database table rather than the filesystem. This means session data survives server restarts and can be queried directly.
+
+The `sessions` table schema:
+
+| Column | Type | Purpose |
+|--------|------|---------|
+| `id` | string | Session identifier (maps to browser cookie) |
+| `user_id` | nullable bigint | Links session to authenticated user |
+| `ip_address` | nullable string(45) | Client IP at last request |
+| `user_agent` | nullable text | Browser user-agent string |
+| `payload` | longtext | Serialized session data (base64-encoded) |
+| `last_activity` | integer | Unix timestamp of last request |
+
+The session cookie name defaults to Laravel's convention (`laravel_session` or configured in `config/session.php`). The session lifetime, secure flag, and same-site policy follow the defaults defined in that config file.
+
+When a user logs in, `AuthenticatedSessionController@store` calls `$request->session()->regenerate()`, which creates a new session ID. This prevents session fixation attacks — any session ID that existed before authentication is discarded.
+
+## 4.3 Auth Controllers
+
+SIAKAD ships with the standard 11 Laravel Breeze controllers. None are customized beyond the registration controller.
+
+| Controller | Responsibility |
+|------------|----------------|
+| `AuthenticatedSessionController` | Login (create/store) and logout (destroy) |
+| `RegisteredUserController` | Registration with role-based profile creation **(customized)** |
+| `PasswordResetLinkController` | Sends password reset email |
+| `NewPasswordController` | Handles reset token validation and password update |
+| `PasswordController` | Changes password for authenticated users |
+| `ConfirmablePasswordController` | Password confirmation gate for sensitive operations |
+| `EmailVerificationPromptController` | Shows "verify your email" notice page |
+| `EmailVerificationNotificationController` | Resends verification email |
+| `VerifyEmailController` | Processes email verification link |
+
+The only non-standard controller is `RegisteredUserController`, which contains the role-based profile auto-creation logic described below.
+
+## 4.4 Registration Flow
+
+Registration is restricted to two roles: `dosen` and `mahasiswa`. The `superadmin` and `admin_fakultas` roles cannot self-register — those accounts are created programmatically through `UserService` or database seeders.
+
+### Step-by-Step Flow
+
+```
+┌──────────┐     POST /register       ┌─────────────────────────┐
+│ Register │ ──────────────────────── │ RegisteredUserController │
+│ Form     │    name, email,          │         @store           │
+│          │    password,             │                          │
+│          │    password_confirmation,│                          │
+│          │    role                  │                          │
+└──────────┘                          └────────────┬────────────┘
+                                                   │
+                                      ┌────────────▼────────────┐
+                                      │  1. Validate input       │
+                                      │     - name: required     │
+                                      │     - email: unique      │
+                                      │     - password: confirmed│
+                                      │     - role: in(dosen,    │
+                                      │            mahasiswa)    │
+                                      └────────────┬────────────┘
+                                                   │
+                                      ┌────────────▼────────────┐
+                                      │  2. Create User record   │
+                                      │     role = request.role  │
+                                      │     password = bcrypt()  │
+                                      └────────────┬────────────┘
+                                                   │
+                                       ┌───────────┴──────────┐
+                                       ▼                      ▼
+                              role == mahasiswa        role == dosen
+                                       │                      │
+                          ┌────────────▼──────────┐  ┌───────▼────────────┐
+                          │ Create Mahasiswa       │  │ Create Dosen       │
+                          │  - NIM: 'MHS'+time()   │  │  - NIDN: 'DSN'+    │
+                          │  - semester: 1         │  │         time()     │
+                          │  - status: 'aktif'     │  │  - status: 'aktif' │
+                          │  - fakultas_id: first  │  │  - fakultas_id:    │
+                          │  - prodi_id: first     │  │         first      │
+                          └────────────┬──────────┘  └───────┬────────────┘
+                                       │                      │
+                                       └──────────┬───────────┘
+                                                  │
+                                      ┌───────────▼───────────┐
+                                      │  3. Auth::login($user) │
+                                      │  4. Redirect to role   │
+                                      │     dashboard          │
+                                      └───────────────────────┘
+```
+
+### Registration Controller Code (Key Excerpt)
+
+```php
+public function store(Request $request): RedirectResponse
+{
+    $request->validate([
+        'name'     => ['required', 'string', 'max:255'],
+        'email'    => ['required', 'string', 'lowercase', 'email', 'max:255', 'unique:users'],
+        'password' => ['required', 'confirmed', Rules\Password::defaults()],
+        'role'     => ['required', 'in:dosen,mahasiswa'],
+    ]);
+
+    $user = User::create([
+        'name'     => $request->name,
+        'email'    => $request->email,
+        'password' => Hash::make($request->password),
+        'role'     => $request->role,
+    ]);
+
+    if ($request->role === 'mahasiswa') {
+        Mahasiswa::create([
+            'user_id'     => $user->id,
+            'nim'         => 'MHS' . time(),
+            'nama'        => $user->name,
+            'email'       => $user->email,
+            'semester'    => 1,
+            'status'      => 'aktif',
+            'fakultas_id' => Fakultas::first()->id,
+            'prodi_id'    => Prodi::first()->id,
+        ]);
+    } elseif ($request->role === 'dosen') {
+        Dosen::create([
+            'user_id'     => $user->id,
+            'nidn'        => 'DSN' . time(),
+            'nama'        => $user->name,
+            'email'       => $user->email,
+            'status'      => 'aktif',
+            'fakultas_id' => Fakultas::first()->id,
+        ]);
+    }
+
+    event(new Registered($user));
+    Auth::login($user);
+
+    return redirect()->route($request->role . '.dashboard');
+}
+```
+
+### Notable Registration Behaviors
+
+| Behavior | Detail | Risk |
+|----------|--------|------|
+| NIM/NIDN generation | `'MHS' + time()` / `'DSN' + time()` | Two registrations in the same second produce duplicate identifiers. `time()` returns seconds, not milliseconds. |
+| Faculty assignment | `Fakultas::first()->id` | Assigns the first faculty in the database (by primary key). If no faculty exists, this throws an exception. |
+| Prodi assignment | `Prodi::first()->id` (mahasiswa only) | Same issue — crashes if no prodi records exist. |
+| No transaction wrapping | User and profile creation are separate queries | If profile creation fails, an orphaned User record remains with no corresponding Mahasiswa/Dosen row. |
+| Role whitelist | `in:dosen,mahasiswa` | Correct — prevents self-registration as `superadmin` or `admin_fakultas`. |
+
+## 4.5 Login Flow
+
+### AuthenticatedSessionController@store
+
+```php
+public function store(LoginRequest $request): RedirectResponse
+{
+    $request->authenticate();
+    $request->session()->regenerate();
+
+    $user = $request->user();
+
+    return match ($user->role) {
+        'superadmin', 'admin_fakultas' => redirect()->intended('/admin/dashboard'),
+        'dosen'                        => redirect()->intended('/dosen/dashboard'),
+        'mahasiswa'                    => redirect()->intended('/mahasiswa/dashboard'),
+        default                        => redirect()->intended('/dashboard'),
+    };
+}
+```
+
+The `match` statement routes each role to its dedicated dashboard. The `redirect()->intended()` call respects the URL the user originally tried to access before being redirected to the login page. If no intended URL exists, it falls back to the specified dashboard path.
+
+### Logout
+
+`AuthenticatedSessionController@destroy` calls `Auth::guard('web')->logout()`, invalidates the session, and regenerates the CSRF token. The user is redirected to `/`.
+
+### Password Reset
+
+Standard Breeze flow with no modifications:
+
+1. User submits email to `PasswordResetLinkController@store`
+2. Laravel sends a `ResetPassword` notification with a signed token URL
+3. User clicks the link → `NewPasswordController@create` shows the reset form
+4. User submits new password → `NewPasswordController@store` validates the token and updates the password
+
+### Email Verification
+
+Standard Breeze flow with no modifications:
+
+1. After registration, the `Registered` event fires
+2. `EmailVerificationPromptController@__invoke` shows a "please verify" page if `email_verified_at` is null
+3. `EmailVerificationNotificationController@store` resends the verification email
+4. `VerifyEmailController@__invoke` marks the user as verified when they click the link
+5. The `verified` middleware on route groups blocks unverified users from accessing protected pages
+
+## 4.6 Role System
+
+### The `role` Column
+
+Authorization in SIAKAD is built on a single `role` string column in the `users` table. There is no roles table, no many-to-many pivot — just a plain string field with four possible values.
+
+```sql
+-- users table (simplified)
+CREATE TABLE users (
+    id          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    name        VARCHAR(255),
+    email       VARCHAR(255) UNIQUE,
+    password    VARCHAR(255),
+    role        VARCHAR(255),   -- 'superadmin', 'admin_fakultas', 'dosen', 'mahasiswa'
+    ...
+);
+```
+
+### Role Comparison Matrix
+
+| Capability | superadmin | admin_fakultas | dosen | mahasiswa |
+|------------|:----------:|:--------------:|:-----:|:---------:|
+| **System Administration** | | | | |
+| Manage all faculties | ✓ | — | — | — |
+| Create admin_fakultas users | ✓ | — | — | — |
+| View system-wide reports | ✓ | — | — | — |
+| Switch faculty context | ✓ | — | — | — |
+| **Faculty Administration** | | | | |
+| Manage students in faculty | ✓ | ✓ (own faculty) | — | — |
+| Manage lecturers in faculty | ✓ | ✓ (own faculty) | — | — |
+| Manage classes/schedules | ✓ | ✓ (own faculty) | — | — |
+| View faculty reports | ✓ | ✓ (own faculty) | — | — |
+| Approve/reject KRS | ✓ | ✓ | — | — |
+| **Academic Operations** | | | | |
+| Input grades | — | — | ✓ (own classes) | — |
+| Record attendance | — | — | ✓ (own classes) | — |
+| Supervise thesis | — | — | ✓ (assigned) | — |
+| Supervise internship | — | — | ✓ (assigned) | — |
+| **Student Operations** | | | | |
+| Submit KRS | — | — | — | ✓ |
+| View grades/transcript | — | — | — | ✓ |
+| View attendance records | — | — | — | ✓ |
+| Manage thesis progress | — | — | — | ✓ |
+| Manage internship logbook | — | — | — | ✓ |
+| Use AI advisor | — | — | — | ✓ |
+
+### How Each Role Gets Created
+
+| Role | Creation Method |
+|------|----------------|
+| `superadmin` | Database seeder or `UserService` |
+| `admin_fakultas` | `UserService` (triggered by superadmin via admin panel) |
+| `dosen` | Self-registration at `/register` or admin creation |
+| `mahasiswa` | Self-registration at `/register` or admin creation |
+
+## 4.7 RoleMiddleware
+
+`app/Http/Middleware/RoleMiddleware.php` is the gatekeeper for role-based route access.
+
+### Implementation
+
+```php
+class RoleMiddleware
+{
+    public function handle(Request $request, Closure $next, string ...$roles): Response
+    {
+        $user = $request->user();
+
+        if (!$user || !in_array($user->role, $roles)) {
+            abort(403, 'Unauthorized.');
+        }
+
+        return $next($request);
+    }
+}
+```
+
+### Registration in bootstrap/app.php
+
+```php
+->withMiddleware(function (Middleware $middleware) {
+    $middleware->alias([
+        'role' => \App\Http\Middleware\RoleMiddleware::class,
+    ]);
+})
+```
+
+### Usage Pattern
+
+The middleware accepts one or more role names as comma-separated arguments:
+
+```php
+// Single role
+Route::middleware(['auth', 'verified', 'role:dosen'])
+    ->prefix('dosen')
+    ->group(function () { ... });
+
+// Multiple roles
+Route::middleware(['auth', 'verified', 'role:admin_fakultas,superadmin'])
+    ->prefix('admin')
+    ->group(function () { ... });
+```
+
+### Middleware Stack Order
+
+For every protected route, the middleware executes in this sequence:
+
+```
+1. auth             → Confirms user is logged in (redirects to /login if not)
+2. verified         → Confirms email is verified (redirects to verification notice if not)
+3. role:xxx         → Confirms user->role matches one of the allowed roles (403 if not)
+```
+
+The `FakultasScopeMiddleware` is applied separately to admin route groups (see section 4.8).
+
+## 4.8 FakultasScopeMiddleware — Multi-Tenant Scoping
+
+The `FakultasScopeMiddleware` enforces faculty-level data isolation for admin routes. It does not use database-level row filtering or global Eloquent scopes — instead, it sets a session variable and shares a view variable that controllers then reference manually.
+
+### How It Works
+
+```
+                    Request to /admin/*
+                           │
+                           ▼
+              ┌────────────────────────┐
+              │ FakultasScopeMiddleware │
+              └────────────┬───────────┘
+                           │
+              ┌────────────▼────────────┐
+              │  What role is the user?  │
+              └──┬──────────────────┬───┘
+                 │                  │
+      admin_fakultas           superadmin
+                 │                  │
+    ┌────────────▼──────────┐  ┌───▼──────────────────────┐
+    │ Look up AdminFakultas │  │ Check query param         │
+    │ model by user_id      │  │   ?fakultas_id=X          │
+    │                       │  │                           │
+    │ Get fakultas_id from  │  │ If absent, check session  │
+    │ that record           │  │   session('fakultas_id')  │
+    │                       │  │                           │
+    │                       │  │ If absent, use first      │
+    │                       │  │   Fakultas::first()->id   │
+    └────────────┬──────────┘  └───┬──────────────────────┘
+                 │                  │
+                 └────────┬─────────┘
+                          │
+             ┌────────────▼────────────┐
+             │ Store fakultas_id in    │
+             │ session                 │
+             │                        │
+             │ Load Fakultas model     │
+             │                        │
+             │ View::share(           │
+             │   'currentFakultas',   │
+             │   $fakultas             │
+             │ )                       │
+             └────────────┬────────────┘
+                          │
+                          ▼
+                   Continue to controller
+```
+
+### Key Behaviors
+
+| Scenario | Behavior |
+|----------|----------|
+| `admin_fakultas` accesses any admin page | Faculty is fixed — always their own faculty from `admin_fakultas` table |
+| `superadmin` accesses admin page with `?fakultas_id=3` | Faculty context switches to ID 3, stored in session |
+| `superadmin` accesses admin page without param | Uses last faculty from session, or defaults to `Fakultas::first()` |
+| Non-admin user hits admin route | Blocked earlier by `RoleMiddleware`, never reaches this middleware |
+
+### What This Does NOT Do
+
+- It does **not** apply global query scopes to Eloquent models. Each controller must manually add `->where('fakultas_id', session('fakultas_id'))` to its queries.
+- It does **not** prevent a superadmin from seeing data across faculties — a superadmin can switch context freely.
+- It does **not** validate that the `fakultas_id` query parameter corresponds to an existing faculty. If an invalid ID is passed, the Fakultas lookup returns null and downstream behavior is undefined.
+
+## 4.9 Route Protection Summary
+
+### Route Group Structure
+
+```php
+// Guest routes (login, register, password reset)
+Route::middleware('guest')->group(function () {
+    // AuthenticatedSessionController (create, store)
+    // RegisteredUserController (create, store)
+    // PasswordResetLinkController, NewPasswordController
+});
+
+// Authenticated routes requiring email verification
+Route::middleware(['auth', 'verified', 'role:admin_fakultas,superadmin'])
+    ->prefix('admin')
+    ->group(function () {
+        // All admin controllers
+        // FakultasScopeMiddleware applied within this group
+    });
+
+Route::middleware(['auth', 'verified', 'role:dosen'])
+    ->prefix('dosen')
+    ->group(function () {
+        // All dosen controllers
+    });
+
+Route::middleware(['auth', 'verified', 'role:mahasiswa'])
+    ->prefix('mahasiswa')
+    ->group(function () {
+        // All mahasiswa controllers
+    });
+```
+
+### Rate Limiting
+
+Rate limiting is configured in `bootstrap/app.php` using Laravel's `RateLimiter` facade. Four named limiters are defined:
+
+| Limiter Name | Max Requests | Window | Applied To |
+|-------------|-------------|--------|------------|
+| `krs` | 10 | per minute | KRS submission and modification endpoints |
+| `penilaian` | 20 | per minute | Grade input endpoints |
+| `sensitive` | 30 | per minute | Sensitive data operations |
+| `ai-chat` | 10 | per minute | AI advisor chat endpoint |
+
+These limiters are applied to specific routes using the `throttle:limiter_name` middleware:
+
+```php
+Route::middleware(['auth', 'verified', 'role:mahasiswa', 'throttle:krs'])
+    ->post('/mahasiswa/krs', [KrsController::class, 'store']);
+```
+
+When the rate limit is exceeded, Laravel returns a `429 Too Many Requests` response with `Retry-After` and `X-RateLimit-*` headers.
+
+## 4.10 Authorization Gap Analysis
+
+SIAKAD has the scaffolding for a full Laravel authorization system — policies, form requests, and Spatie Permission — but none of it is wired up. All actual authorization is done through two mechanisms: route-level role middleware and inline controller queries.
+
+### What's Scaffolded vs. What's Used
+
+| Component | Files Exist | Actually Used |
+|-----------|:-----------:|:-------------:|
+| RoleMiddleware | ✓ | ✓ (active on all protected routes) |
+| FakultasScopeMiddleware | ✓ | ✓ (active on admin routes) |
+| Policies (KrsPolicy, KelasPolicy, NilaiPolicy) | ✓ | ✗ (all methods are empty) |
+| Form Requests (8 files) | ✓ | ✗ (all return `authorize() = false`, empty `rules()`) |
+| Gates | — | ✗ (none defined) |
+| Spatie Permission roles/permissions | ✓ (seeded) | ✗ (never checked in code) |
+
+### How Authorization Actually Works
+
+**Admin Controllers:**
+Authorization is role middleware only. Once past `role:admin_fakultas,superadmin`, the controller trusts the user has access. Faculty scoping comes from `FakultasScopeMiddleware` session values, but controllers must manually apply it to queries.
+
+**Dosen Controllers:**
+Each controller fetches the dosen profile tied to the authenticated user and filters data by it:
+
+```php
+// Typical pattern in every dosen controller
+$dosen = Dosen::where('user_id', auth()->id())->firstOrFail();
+
+// Then all queries filter by this dosen
+$kelas = Kelas::where('dosen_id', $dosen->id)->get();
+```
+
+This pattern repeats in every dosen controller method. There is no shared trait, base controller, or middleware that extracts the dosen relationship — each controller does it independently.
+
+**Mahasiswa Controllers:**
+Identical pattern to dosen:
+
+```php
+// Typical pattern in every mahasiswa controller
+$mahasiswa = Mahasiswa::where('user_id', auth()->id())->firstOrFail();
+
+// Then all queries filter by this mahasiswa
+$krs = Krs::where('mahasiswa_id', $mahasiswa->id)->get();
+```
+
+### What the Empty Policies Look Like
+
+```php
+// app/Policies/KrsPolicy.php (representative of all 3 policies)
+class KrsPolicy
+{
+    // No methods defined — no viewAny, view, create, update, delete
+}
+```
+
+These policies are registered nowhere. No controller calls `$this->authorize()` or uses `Gate::allows()`.
+
+### What the Empty Form Requests Look Like
+
+```php
+// app/Http/Requests/Dosen/StoreNilaiRequest.php (representative of all 8)
+class StoreNilaiRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return false;  // Would reject ALL requests if used
+    }
+
+    public function rules(): array
+    {
+        return [];  // No validation rules
+    }
+}
+```
+
+These form requests are never type-hinted in any controller method. All validation is done inline with `$request->validate([...])`.
+
+## 4.11 Spatie Permission: Seeded but Ignored
+
+The `spatie/laravel-permission` package is installed and the `RolePermissionSeeder` populates roles and permissions into Spatie's tables. However, no code path checks these permissions.
+
+### What the Seeder Creates
+
+```php
+// database/seeders/RolePermissionSeeder.php (summarized)
+
+// Roles created in Spatie's roles table
+$superadmin     = Role::create(['name' => 'superadmin']);
+$adminFakultas  = Role::create(['name' => 'admin_fakultas']);
+$dosen          = Role::create(['name' => 'dosen']);
+$mahasiswa      = Role::create(['name' => 'mahasiswa']);
+
+// Permissions assigned
+$superadmin->givePermissionTo([
+    'manage-users', 'manage-fakultas', 'manage-prodi', 'view-reports'
+]);
+$adminFakultas->givePermissionTo([
+    'manage-mahasiswa', 'manage-dosen', 'manage-kelas', 'view-fakultas-reports'
+]);
+$dosen->givePermissionTo([
+    'manage-nilai', 'manage-presensi', 'view-kelas', 'manage-bimbingan'
+]);
+$mahasiswa->givePermissionTo([
+    'manage-krs', 'view-nilai', 'view-jadwal', 'view-presensi'
+]);
+```
+
+### Why It's Unused
+
+The `users` table has its own `role` column, and the `RoleMiddleware` checks that column directly. No controller, middleware, or gate calls Spatie methods like `$user->hasPermissionTo()`, `$user->hasRole()` (Spatie version), or `@can` directives in Blade templates.
+
+This creates a dual-role system where:
+- The `users.role` column is the real authority
+- Spatie's `model_has_roles` and `role_has_permissions` tables contain data that nothing reads
+
+If these two systems ever diverge (e.g., a user's `role` column says `dosen` but Spatie has them as `mahasiswa`), the application follows the `users.role` column and ignores Spatie entirely.
+
+### Vestigial Middleware: HandleInertiaRequests
+
+The `HandleInertiaRequests` middleware exists in `app/Http/Middleware/` and shares `auth` user data and version information. However, SIAKAD uses Blade templates, not Inertia.js. This middleware is not registered in any route group or in `bootstrap/app.php` and has no effect on the running application.
+
+## 4.12 Security Considerations
+
+### Current Strengths
+
+| Area | Status | Detail |
+|------|--------|--------|
+| Password hashing | Good | bcrypt via Laravel defaults |
+| Session fixation protection | Good | `$request->session()->regenerate()` on login |
+| CSRF protection | Good | Enabled globally via `VerifyCsrfToken` middleware |
+| Role-based route protection | Good | All route groups gated by `RoleMiddleware` |
+| Email verification | Good | `verified` middleware enforced on all protected routes |
+| Rate limiting | Good | Applied to high-value endpoints (KRS, grading, AI chat) |
+| SQL injection | Good | Eloquent ORM and query builder used consistently |
+
+### Current Weaknesses and Recommendations
+
+**1. No Object-Level Authorization**
+
+The policies exist but are empty. A dosen who knows the ID of a class they don't teach could potentially access it if the controller has a route that accepts an arbitrary class ID and the ownership check is missing or inconsistent.
+
+Recommendation: Implement the three existing policies (`KrsPolicy`, `KelasPolicy`, `NilaiPolicy`) with proper `viewAny`, `view`, `create`, `update`, and `delete` methods. Call `$this->authorize()` in controllers.
+
+**2. NIM/NIDN Collision Risk**
+
+`'MHS' + time()` produces identifiers based on seconds. Two concurrent registrations in the same second produce the same NIM or NIDN. The database may or may not have a unique constraint on these columns.
+
+Recommendation: Use a UUID, ULID, or a database sequence with a proper prefix format like `MHS-2026-00001`.
+
+**3. Missing Database Transaction on Registration**
+
+User creation and profile creation are two separate queries with no `DB::transaction()` wrapper. A failure on the profile insert leaves an orphaned User record.
+
+Recommendation: Wrap both operations in `DB::transaction()`.
+
+**4. No Faculty Existence Validation in FakultasScopeMiddleware**
+
+A superadmin can pass `?fakultas_id=999999` and the middleware stores it in the session without validating whether that faculty exists. Downstream controllers may behave unpredictably.
+
+Recommendation: Validate that the `fakultas_id` corresponds to an existing `Fakultas` record before storing it.
+
+**5. Duplicated Ownership Checks**
+
+Every dosen and mahasiswa controller independently queries `Dosen::where('user_id', auth()->id())->firstOrFail()` or the mahasiswa equivalent. This is error-prone — if one controller forgets this check, it exposes data.
+
+Recommendation: Extract ownership resolution into a shared middleware or a base controller method. Alternatively, use route model binding with a custom resolution that scopes to the authenticated user.
+
+**6. Spatie Permission Creates Confusion**
+
+Having a fully seeded permission system that is never checked creates a false sense of security. A developer reading the seeder might assume permissions are enforced.
+
+Recommendation: Either wire up Spatie permissions (replace the custom `RoleMiddleware` and `users.role` column) or remove the package and its seeder to eliminate confusion.
+
+**7. Form Requests Return `authorize() = false`**
+
+The eight form request files all return `false` from `authorize()`. If a developer type-hints one of these in a controller method without reviewing it, every request to that endpoint will get a 403 response.
+
+Recommendation: Either implement proper authorization and validation rules in these form requests and use them, or delete the files.
+
+**8. No Audit Logging**
+
+There is no record of who performed what action. Admin operations (user creation, KRS approval, grade changes) leave no audit trail.
+
+Recommendation: Add an activity log (e.g., `spatie/laravel-activitylog`) for write operations on sensitive models.
+
+### Authorization Architecture: Current vs. Recommended
+
+```
+CURRENT STATE                              RECOMMENDED STATE
+─────────────                              ─────────────────
+
+Route Middleware                           Route Middleware
+  └─ RoleMiddleware (role check)             └─ RoleMiddleware (role check)
+       │                                          │
+       ▼                                          ▼
+Controller                                 Policy Layer
+  └─ Inline ownership query                  └─ KrsPolicy, KelasPolicy, etc.
+       (ad-hoc, per-controller)                  └─ $this->authorize() in controller
+       │                                              │
+       ▼                                              ▼
+Eloquent Query                             Form Request Layer
+  └─ No further checks                       └─ Validation rules + authorize()
+                                                      │
+                                                      ▼
+                                               Eloquent Query
+                                                 └─ Global scopes for faculty/ownership
+```
+
+The current system works for its scale but relies on every developer manually adding ownership checks to every controller method. As the application grows, a policy-based approach with form request validation would catch authorization issues at a structural level rather than depending on controller discipline.

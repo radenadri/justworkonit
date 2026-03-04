@@ -1,0 +1,2795 @@
+# Chapter 9: Rebuild Guide
+
+This chapter provides a complete, step-by-step reconstruction plan for SIAKAD. Every command, every file, every configuration value is listed in dependency order. A developer with no prior knowledge of the codebase can follow this guide from an empty directory to a fully functional academic information system.
+
+## 9.1 Prerequisites
+
+### Required Software
+
+| Software | Version | Purpose |
+|----------|---------|---------|
+| PHP | 8.4+ | Runtime |
+| Composer | 2.x | PHP dependency management |
+| Bun | 1.x+ | JavaScript runtime and package manager |
+| MariaDB/MySQL | 10.6+ / 8.0+ | Production database |
+| SQLite | 3.x | Development database |
+| Git | 2.x | Version control |
+
+### PHP Extensions
+
+```
+bcmath, ctype, curl, dom, fileinfo, json, mbstring,
+openssl, pdo, pdo_mysql, pdo_sqlite, tokenizer, xml, zip
+```
+
+Verify PHP extensions:
+
+```bash
+php -m | grep -E "pdo_mysql|pdo_sqlite|mbstring|xml|curl|zip"
+```
+
+### Directory Structure After Rebuild
+
+```
+siakad/
+├── app/
+│   ├── Exceptions/          # SiakadException, KrsException
+│   ├── Http/
+│   │   ├── Controllers/
+│   │   │   ├── Admin/       # 14 controllers
+│   │   │   ├── Auth/        # 11 controllers (Breeze)
+│   │   │   ├── Dosen/       # 10 controllers
+│   │   │   └── Mahasiswa/   # 14 controllers
+│   │   └── Middleware/      # 5 middleware classes
+│   ├── Models/              # 26 Eloquent models
+│   └── Services/            # 13 service classes
+│       └── AcademicAdvisor/ # AdvisorContextBuilder, AdvisorGuards
+├── bootstrap/
+│   └── app.php              # Middleware, rate limiters, routing
+├── config/
+│   ├── siakad.php           # Grade conversion, SKS rules, roles
+│   └── academic_rules.php   # Graduation rules, curriculum, thresholds
+├── database/
+│   ├── factories/           # 6 factories
+│   ├── migrations/          # 38 migration files
+│   └── seeders/             # RolePermissionSeeder, DatabaseSeeder
+├── resources/
+│   ├── css/app.css          # Design system
+│   ├── js/app.js            # Alpine.js bootstrap
+│   ├── prompts/             # AI advisor system prompt
+│   └── views/
+│       ├── components/      # 13 Blade components
+│       ├── layouts/         # app.blade.php, guest.blade.php
+│       ├── admin/           # Admin views
+│       ├── dosen/           # Dosen views
+│       └── mahasiswa/       # Mahasiswa views
+├── routes/
+│   ├── admin/               # 10 route files
+│   ├── dosen/               # 10 route files
+│   ├── mahasiswa/           # 14 route files
+│   └── web.php              # Root router
+└── tests/
+    └── Feature/             # Pest test suites
+```
+
+---
+
+## 9.2 Phase 1 — Project Scaffolding
+
+### Step 1: Create the Laravel Project
+
+```bash
+composer create-project laravel/laravel siakad
+cd siakad
+```
+
+### Step 2: Install Laravel Breeze
+
+```bash
+composer require laravel/breeze --dev
+php artisan breeze:install blade --no-interaction
+```
+
+This generates authentication controllers, views, routes, and the Tailwind CSS + Alpine.js frontend stack.
+
+### Step 3: Install Spatie Laravel Permission
+
+```bash
+composer require spatie/laravel-permission
+php artisan vendor:publish --provider="Spatie\Permission\PermissionServiceProvider" --no-interaction
+```
+
+This publishes `config/permission.php` and a migration for permission tables.
+
+### Step 4: Install Pest
+
+```bash
+composer require pestphp/pest --dev
+composer require pestphp/pest-plugin-laravel --dev
+php artisan pest:install --no-interaction
+```
+
+### Step 5: Install Remaining Dev Dependencies
+
+```bash
+composer require laravel/pint --dev
+composer require laravel/sail --dev
+```
+
+### Step 6: Install Frontend Dependencies via Bun
+
+```bash
+bun install
+```
+
+The `package.json` after setup:
+
+```json
+{
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "build": "bun --bun vite build",
+        "dev": "bun --bun vite"
+    },
+    "devDependencies": {
+        "@tailwindcss/forms": "^0.5.2",
+        "alpinejs": "^3.4.2",
+        "autoprefixer": "^10.4.2",
+        "axios": "^1.11.0",
+        "concurrently": "^9.0.1",
+        "laravel-vite-plugin": "^2.0.0",
+        "postcss": "^8.4.31",
+        "tailwindcss": "^3.1.0",
+        "vite": "^7.0.7"
+    }
+}
+```
+
+### Step 7: Configure Database
+
+For development with SQLite (default in Laravel 12):
+
+```env
+DB_CONNECTION=sqlite
+```
+
+For production with MariaDB/MySQL:
+
+```env
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=siakad
+DB_USERNAME=root
+DB_PASSWORD=secret
+```
+
+---
+
+## 9.3 Phase 2 — Database Schema
+
+### Migration Dependency Order
+
+Migrations must be created in a specific order because of foreign key constraints. The diagram below shows the dependency chain:
+
+```
+users
+  ├─ fakultas
+  │    └─ prodi
+  │         ├─ dosen ──────── (FK→users, prodi)
+  │         ├─ mahasiswa ──── (FK→users, prodi, dosen as PA)
+  │         └─ mata_kuliah ── (FK→prodi)
+  │              └─ kelas ─── (FK→mata_kuliah, dosen, tahun_akademik)
+  │                   ├─ jadwal_kuliah ── (FK→kelas)
+  │                   │    └─ pertemuan ── (FK→jadwal_kuliah)
+  │                   │         └─ presensi ── (FK→pertemuan, mahasiswa)
+  │                   ├─ krs_detail ───── (FK→krs, kelas)
+  │                   ├─ nilai ────────── (FK→mahasiswa, kelas)
+  │                   ├─ materi ───────── (FK→kelas)
+  │                   └─ tugas ────────── (FK→kelas)
+  │                        └─ tugas_submission (FK→tugas, mahasiswa)
+  ├─ tahun_akademik
+  │    └─ krs ──────── (FK→mahasiswa, tahun_akademik)
+  ├─ ruangan
+  ├─ skripsi ──────── (FK→mahasiswa, dosen×2)
+  │    └─ bimbingan ── (FK→skripsi)
+  ├─ kerja_praktek ── (FK→mahasiswa, dosen)
+  │    └─ logbook_kp ─ (FK→kerja_praktek)
+  ├─ kehadiran_dosen ─ (FK→dosen, jadwal_kuliah)
+  ├─ admin_fakultas ── (FK→users, fakultas)
+  └─ ai_conversations  (FK→mahasiswa)
+```
+
+### Artisan Commands for Migration Creation
+
+Run these in order:
+
+```bash
+# The users table migration ships with Laravel (0001_01_01_000000)
+
+# Core reference tables
+php artisan make:migration create_fakultas_table --no-interaction
+php artisan make:migration create_prodi_table --no-interaction
+php artisan make:migration add_role_to_users_table --no-interaction
+
+# People
+php artisan make:migration create_dosen_table --no-interaction
+php artisan make:migration create_mahasiswa_table --no-interaction
+
+# Academic calendar
+php artisan make:migration create_tahun_akademik_table --no-interaction
+
+# Courses and classes
+php artisan make:migration create_mata_kuliah_table --no-interaction
+php artisan make:migration create_kelas_table --no-interaction
+php artisan make:migration create_ruangan_table --no-interaction
+
+# Scheduling
+php artisan make:migration create_jadwal_kuliah_table --no-interaction
+
+# Registration
+php artisan make:migration create_krs_table --no-interaction
+php artisan make:migration create_krs_detail_table --no-interaction
+
+# Grading
+php artisan make:migration create_nilai_table --no-interaction
+
+# Attendance
+php artisan make:migration create_pertemuan_table --no-interaction
+php artisan make:migration create_presensi_table --no-interaction
+php artisan make:migration create_kehadiran_dosen_table --no-interaction
+
+# LMS
+php artisan make:migration create_materi_table --no-interaction
+php artisan make:migration create_tugas_table --no-interaction
+php artisan make:migration create_tugas_submission_table --no-interaction
+
+# Thesis and internship
+php artisan make:migration create_skripsi_table --no-interaction
+php artisan make:migration create_bimbingan_skripsi_table --no-interaction
+php artisan make:migration create_kerja_praktek_table --no-interaction
+php artisan make:migration create_logbook_kp_table --no-interaction
+
+# System
+php artisan make:migration create_activity_log_table --no-interaction
+php artisan make:migration create_ai_conversation_logs_table --no-interaction
+
+# Additive migrations (run after base tables exist)
+php artisan make:migration add_dosen_pa_to_mahasiswa --no-interaction
+php artisan make:migration add_catatan_to_krs_table --no-interaction
+php artisan make:migration add_status_columns --no-interaction
+php artisan make:migration add_tahun_akademik_id_to_kelas_table --no-interaction
+php artisan make:migration add_date_range_to_tahun_akademik_table --no-interaction
+php artisan make:migration add_prodi_id_to_mata_kuliah_table --no-interaction
+php artisan make:migration add_fakultas_id_to_ruangan_table --no-interaction
+php artisan make:migration add_fakultas_id_to_users_table --no-interaction
+php artisan make:migration add_performance_indexes --no-interaction
+```
+
+### Complete Migration Code — Critical Tables
+
+#### users (Laravel default + role column)
+
+The base `users` table ships with Laravel. The role column is added via a separate migration:
+
+```php
+// database/migrations/2025_12_10_020000_add_role_to_users_table.php
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::table('users', function (Blueprint $table) {
+            $table->string('role')->after('email_verified_at')->default('mahasiswa');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::table('users', function (Blueprint $table) {
+            $table->dropColumn('role');
+        });
+    }
+};
+```
+
+A later migration adds `fakultas_id`:
+
+```php
+// database/migrations/2025_12_21_180000_add_fakultas_id_to_users_table.php
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::table('users', function (Blueprint $table) {
+            $table->foreignId('fakultas_id')->nullable()->after('role')
+                  ->constrained('fakultas')->nullOnDelete();
+        });
+    }
+};
+```
+
+#### fakultas
+
+```php
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('fakultas', function (Blueprint $table) {
+            $table->id();
+            $table->string('nama');
+            $table->timestamps();
+        });
+    }
+};
+```
+
+#### prodi
+
+```php
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('prodi', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('fakultas_id')->constrained('fakultas')->cascadeOnDelete();
+            $table->string('nama');
+            $table->timestamps();
+        });
+    }
+};
+```
+
+#### dosen
+
+```php
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('dosen', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('user_id')->constrained('users')->cascadeOnDelete();
+            $table->string('nidn')->unique();
+            $table->foreignId('prodi_id')->constrained('prodi')->cascadeOnDelete();
+            $table->timestamps();
+        });
+    }
+};
+```
+
+#### mahasiswa
+
+```php
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('mahasiswa', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('user_id')->constrained('users')->cascadeOnDelete();
+            $table->string('nim')->unique();
+            $table->foreignId('prodi_id')->constrained('prodi')->cascadeOnDelete();
+            $table->string('angkatan');
+            $table->timestamps();
+        });
+    }
+};
+```
+
+The `dosen_pa_id` and `status` columns are added later:
+
+```php
+// add_dosen_pa_to_mahasiswa
+Schema::table('mahasiswa', function (Blueprint $table) {
+    $table->foreignId('dosen_pa_id')->nullable()->constrained('dosen')->nullOnDelete();
+});
+
+// add_status_columns
+Schema::table('mahasiswa', function (Blueprint $table) {
+    $table->string('status')->default('aktif'); // aktif, cuti, lulus, drop_out
+});
+```
+
+#### tahun_akademik
+
+```php
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('tahun_akademik', function (Blueprint $table) {
+            $table->id();
+            $table->string('tahun');           // e.g., '2024/2025'
+            $table->string('semester');         // 'Ganjil' or 'Genap'
+            $table->boolean('is_active')->default(false);
+            $table->timestamps();
+        });
+    }
+};
+```
+
+Date range columns are added later:
+
+```php
+Schema::table('tahun_akademik', function (Blueprint $table) {
+    $table->date('tanggal_mulai')->nullable();
+    $table->date('tanggal_selesai')->nullable();
+});
+```
+
+#### mata_kuliah
+
+```php
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('mata_kuliah', function (Blueprint $table) {
+            $table->id();
+            $table->string('kode_mk')->unique();
+            $table->string('nama_mk');
+            $table->integer('sks');
+            $table->integer('semester');
+            $table->timestamps();
+        });
+    }
+};
+```
+
+The `prodi_id` column is added later:
+
+```php
+Schema::table('mata_kuliah', function (Blueprint $table) {
+    $table->foreignId('prodi_id')->nullable()->constrained('prodi')->nullOnDelete();
+});
+```
+
+#### kelas
+
+```php
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('kelas', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('mata_kuliah_id')->constrained('mata_kuliah')->cascadeOnDelete();
+            $table->foreignId('dosen_id')->constrained('dosen')->cascadeOnDelete();
+            $table->string('nama_kelas');       // e.g., 'A', 'B'
+            $table->integer('kapasitas');
+            $table->timestamps();
+        });
+    }
+};
+```
+
+The `tahun_akademik_id` FK is added later:
+
+```php
+Schema::table('kelas', function (Blueprint $table) {
+    $table->foreignId('tahun_akademik_id')->nullable()->constrained('tahun_akademik')->nullOnDelete();
+});
+```
+
+#### krs
+
+```php
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('krs', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('mahasiswa_id')->constrained('mahasiswa')->cascadeOnDelete();
+            $table->foreignId('tahun_akademik_id')->constrained('tahun_akademik')->cascadeOnDelete();
+            $table->string('status')->default('draft'); // draft, pending, approved, rejected
+            $table->timestamps();
+        });
+    }
+};
+```
+
+The `catatan` column is added later for rejection notes:
+
+```php
+Schema::table('krs', function (Blueprint $table) {
+    $table->text('catatan')->nullable();
+});
+```
+
+#### krs_detail
+
+```php
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('krs_detail', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('krs_id')->constrained('krs')->cascadeOnDelete();
+            $table->foreignId('kelas_id')->constrained('kelas')->cascadeOnDelete();
+            $table->timestamps();
+        });
+    }
+};
+```
+
+#### nilai
+
+```php
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('nilai', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('mahasiswa_id')->constrained('mahasiswa')->cascadeOnDelete();
+            $table->foreignId('kelas_id')->constrained('kelas')->cascadeOnDelete();
+            $table->decimal('nilai_angka', 5, 2)->nullable();
+            $table->string('nilai_huruf')->nullable();
+            $table->timestamps();
+        });
+    }
+};
+```
+
+#### jadwal_kuliah
+
+```php
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('jadwal_kuliah', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('kelas_id')->constrained('kelas')->onDelete('cascade');
+            $table->enum('hari', ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu']);
+            $table->time('jam_mulai');
+            $table->time('jam_selesai');
+            $table->string('ruangan', 50)->nullable();
+            $table->timestamps();
+        });
+    }
+};
+```
+
+#### pertemuan
+
+```php
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('pertemuan', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('jadwal_kuliah_id')->constrained('jadwal_kuliah')->onDelete('cascade');
+            $table->integer('pertemuan_ke');
+            $table->date('tanggal');
+            $table->string('materi')->nullable();
+            $table->enum('status', ['terlaksana', 'libur', 'pengganti'])->default('terlaksana');
+            $table->timestamps();
+
+            $table->unique(['jadwal_kuliah_id', 'pertemuan_ke']);
+        });
+    }
+};
+```
+
+#### presensi
+
+```php
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('presensi', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('pertemuan_id')->constrained('pertemuan')->onDelete('cascade');
+            $table->foreignId('mahasiswa_id')->constrained('mahasiswa')->onDelete('cascade');
+            $table->enum('status', ['hadir', 'sakit', 'izin', 'alpa'])->default('alpa');
+            $table->time('waktu_presensi')->nullable();
+            $table->text('keterangan')->nullable();
+            $table->timestamps();
+
+            $table->unique(['pertemuan_id', 'mahasiswa_id']);
+        });
+    }
+};
+```
+
+### Run All Migrations
+
+```bash
+php artisan migrate --no-interaction
+```
+
+---
+
+## 9.4 Phase 3 — Eloquent Models
+
+### Model Generation Commands
+
+```bash
+php artisan make:model Fakultas --factory --no-interaction
+php artisan make:model Prodi --factory --no-interaction
+php artisan make:model Dosen --factory --no-interaction
+php artisan make:model Mahasiswa --factory --no-interaction
+php artisan make:model TahunAkademik --factory --no-interaction
+php artisan make:model MataKuliah --no-interaction
+php artisan make:model Kelas --no-interaction
+php artisan make:model Ruangan --no-interaction
+php artisan make:model JadwalKuliah --no-interaction
+php artisan make:model Krs --factory --no-interaction
+php artisan make:model KrsDetail --no-interaction
+php artisan make:model Nilai --no-interaction
+php artisan make:model Pertemuan --no-interaction
+php artisan make:model Presensi --no-interaction
+php artisan make:model KehadiranDosen --no-interaction
+php artisan make:model Materi --no-interaction
+php artisan make:model Tugas --no-interaction
+php artisan make:model TugasSubmission --no-interaction
+php artisan make:model Skripsi --no-interaction
+php artisan make:model Bimbingan --no-interaction
+php artisan make:model KerjaPraktek --no-interaction
+php artisan make:model LogbookKp --no-interaction
+php artisan make:model ActivityLog --no-interaction
+php artisan make:model AiConversation --no-interaction
+php artisan make:model AdminFakultas --no-interaction
+```
+
+### Complete Model Code — User
+
+```php
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Foundation\Auth\User as Authenticatable;
+use Illuminate\Notifications\Notifiable;
+use Spatie\Permission\Traits\HasRoles;
+
+class User extends Authenticatable
+{
+    use HasFactory, Notifiable, HasRoles;
+
+    protected $fillable = [
+        'name',
+        'email',
+        'password',
+        'role',
+        'fakultas_id',
+    ];
+
+    protected $hidden = [
+        'password',
+        'remember_token',
+    ];
+
+    protected function casts(): array
+    {
+        return [
+            'email_verified_at' => 'datetime',
+            'password' => 'hashed',
+        ];
+    }
+
+    public function mahasiswa()
+    {
+        return $this->hasOne(Mahasiswa::class);
+    }
+
+    public function dosen()
+    {
+        return $this->hasOne(Dosen::class);
+    }
+
+    public function fakultas()
+    {
+        return $this->belongsTo(Fakultas::class);
+    }
+
+    public function isSuperAdmin(): bool
+    {
+        return $this->role === 'superadmin';
+    }
+
+    public function isAdmin(): bool
+    {
+        return in_array($this->role, ['superadmin', 'admin_fakultas']);
+    }
+
+    public function canAccessFakultas(int $fakultasId): bool
+    {
+        if ($this->isSuperAdmin()) {
+            return true;
+        }
+
+        return $this->fakultas_id === $fakultasId;
+    }
+
+    public function getAccessibleFakultasIds(): array
+    {
+        if ($this->isSuperAdmin()) {
+            return Fakultas::pluck('id')->toArray();
+        }
+
+        return $this->fakultas_id ? [$this->fakultas_id] : [];
+    }
+}
+```
+
+### Complete Model Code — Mahasiswa
+
+```php
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+
+class Mahasiswa extends Model
+{
+    use HasFactory;
+
+    protected $table = 'mahasiswa';
+
+    protected $fillable = [
+        'user_id',
+        'nim',
+        'prodi_id',
+        'dosen_pa_id',
+        'angkatan',
+        'status',
+    ];
+
+    public function user()
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    public function prodi()
+    {
+        return $this->belongsTo(Prodi::class);
+    }
+
+    public function dosenPa()
+    {
+        return $this->belongsTo(Dosen::class, 'dosen_pa_id');
+    }
+
+    public function krs()
+    {
+        return $this->hasMany(Krs::class);
+    }
+
+    public function nilai()
+    {
+        return $this->hasMany(Nilai::class);
+    }
+
+    public function presensi()
+    {
+        return $this->hasMany(Presensi::class);
+    }
+
+    public function tugasSubmissions()
+    {
+        return $this->hasMany(TugasSubmission::class);
+    }
+
+    public function isActive(): bool
+    {
+        return $this->status === 'aktif';
+    }
+
+    public function scopeAktif($query)
+    {
+        return $query->where('status', 'aktif');
+    }
+}
+```
+
+### Complete Model Code — Krs
+
+```php
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+
+class Krs extends Model
+{
+    use HasFactory;
+
+    protected $table = 'krs';
+
+    protected $fillable = [
+        'mahasiswa_id',
+        'tahun_akademik_id',
+        'status',
+        'catatan',
+    ];
+
+    public function mahasiswa()
+    {
+        return $this->belongsTo(Mahasiswa::class);
+    }
+
+    public function tahunAkademik()
+    {
+        return $this->belongsTo(TahunAkademik::class);
+    }
+
+    public function krsDetail()
+    {
+        return $this->hasMany(KrsDetail::class);
+    }
+}
+```
+
+### Complete Model Code — Nilai
+
+```php
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+
+class Nilai extends Model
+{
+    use HasFactory;
+
+    protected $table = 'nilai';
+
+    protected $fillable = [
+        'mahasiswa_id',
+        'kelas_id',
+        'nilai_angka',
+        'nilai_huruf',
+    ];
+
+    public function mahasiswa()
+    {
+        return $this->belongsTo(Mahasiswa::class);
+    }
+
+    public function kelas()
+    {
+        return $this->belongsTo(Kelas::class);
+    }
+}
+```
+
+### Other Model Patterns
+
+All remaining models follow the same pattern. Key conventions:
+
+| Model | Table Name Override | Notable Relationships |
+|-------|--------------------|-----------------------|
+| `KrsDetail` | `krs_detail` | belongsTo Krs, belongsTo Kelas |
+| `TahunAkademik` | `tahun_akademik` | Has `scopeActive()` for `is_active = true` |
+| `MataKuliah` | `mata_kuliah` | hasMany Kelas, belongsTo Prodi |
+| `Kelas` | — | belongsTo MataKuliah, Dosen, TahunAkademik; hasMany KrsDetail, Nilai |
+| `Skripsi` | — | belongsTo Mahasiswa; belongsTo Dosen (as `pembimbing1`, `pembimbing2`) |
+| `KerjaPraktek` | — | belongsTo Mahasiswa, Dosen; hasMany LogbookKp |
+
+Every model that does not match Laravel's default pluralization convention specifies `$table` explicitly.
+
+---
+
+## 9.5 Phase 4 — Authentication and Authorization
+
+### Middleware: RoleMiddleware
+
+```php
+<?php
+
+namespace App\Http\Middleware;
+
+use Closure;
+use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
+use Illuminate\Support\Facades\Auth;
+
+class RoleMiddleware
+{
+    public function handle(Request $request, Closure $next, string $role): Response
+    {
+        if (!Auth::check()) {
+            if ($request->expectsJson()) {
+                return response()->json(['message' => 'Unauthenticated.'], 401);
+            }
+            return redirect()->route('login');
+        }
+
+        $user = Auth::user();
+
+        // The 'admin' alias matches both superadmin and admin_fakultas
+        $hasAccess = match($role) {
+            'admin' => in_array($user->role, ['superadmin', 'admin_fakultas']),
+            'superadmin' => $user->role === 'superadmin',
+            default => $user->role === $role,
+        };
+
+        if (!$hasAccess) {
+            if ($request->expectsJson()) {
+                return response()->json(['message' => 'Unauthorized.'], 403);
+            }
+            abort(403, 'Anda tidak memiliki akses ke halaman ini.');
+        }
+
+        return $next($request);
+    }
+}
+```
+
+The `match` expression on line 29–33 is significant: passing `'admin'` as the role parameter grants access to both `superadmin` and `admin_fakultas` users, while passing `'superadmin'` restricts to superadmin only. Any other string (e.g., `'dosen'`, `'mahasiswa'`) matches the user's role exactly.
+
+### Middleware: FakultasScopeMiddleware
+
+```php
+<?php
+
+namespace App\Http\Middleware;
+
+use Closure;
+use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
+
+class FakultasScopeMiddleware
+{
+    public function handle(Request $request, Closure $next): Response
+    {
+        $user = $request->user();
+
+        if (!$user) {
+            return $next($request);
+        }
+
+        // Superadmin bypasses all restrictions
+        if ($user->isSuperAdmin()) {
+            return $next($request);
+        }
+
+        // For admin_fakultas, inject faculty constraint into request
+        if ($user->role === 'admin_fakultas' && $user->fakultas_id) {
+            $request->merge([
+                'fakultas_scope' => $user->fakultas_id,
+                'fakultas_scoped' => true,
+            ]);
+        }
+
+        return $next($request);
+    }
+}
+```
+
+Controllers retrieve the scope via `$request->input('fakultas_scope')`. When this value is present, all queries filter by `fakultas_id`. When absent (superadmin), no filtering is applied.
+
+### Middleware Registration in bootstrap/app.php
+
+```php
+<?php
+
+use Illuminate\Foundation\Application;
+use Illuminate\Foundation\Configuration\Exceptions;
+use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Http\Request;
+
+return Application::configure(basePath: dirname(__DIR__))
+    ->withRouting(
+        web: __DIR__.'/../routes/web.php',
+        commands: __DIR__.'/../routes/console.php',
+        health: '/up',
+        then: function () {
+            RateLimiter::for('krs', function (Request $request) {
+                return Limit::perMinute(10)->by($request->user()?->id ?: $request->ip());
+            });
+
+            RateLimiter::for('penilaian', function (Request $request) {
+                return Limit::perMinute(20)->by($request->user()?->id ?: $request->ip());
+            });
+
+            RateLimiter::for('sensitive', function (Request $request) {
+                return Limit::perMinute(30)->by($request->user()?->id ?: $request->ip());
+            });
+
+            RateLimiter::for('ai-chat', function (Request $request) {
+                return Limit::perMinute(10)->by($request->user()?->id ?: $request->ip());
+            });
+        },
+    )
+    ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->append(\App\Http\Middleware\SecurityHeadersMiddleware::class);
+
+        $middleware->alias([
+            'role' => \App\Http\Middleware\RoleMiddleware::class,
+            'log.requests' => \App\Http\Middleware\RequestLoggingMiddleware::class,
+            'fakultas.scope' => \App\Http\Middleware\FakultasScopeMiddleware::class,
+        ]);
+    })
+    ->withExceptions(function (Exceptions $exceptions): void {
+        //
+    })->create();
+```
+
+Four rate limiters are defined:
+
+| Limiter | Rate | Applied To |
+|---------|------|------------|
+| `krs` | 10/min per user | KRS add/remove/submit |
+| `penilaian` | 20/min per user | Bulk grade input |
+| `sensitive` | 30/min per user | User management, exports |
+| `ai-chat` | 10/min per user | AI advisor chat endpoint |
+
+---
+
+## 9.6 Phase 5 — Custom Exception Hierarchy
+
+### Base Exception: SiakadException
+
+```php
+<?php
+
+namespace App\Exceptions;
+
+use Exception;
+use Illuminate\Http\Request;
+use Illuminate\Http\Response;
+
+abstract class SiakadException extends Exception
+{
+    protected string $errorCode;
+    protected int $httpStatus = Response::HTTP_BAD_REQUEST;
+    protected array $context = [];
+
+    public function __construct(string $message = '', array $context = [], ?Exception $previous = null)
+    {
+        $this->context = $context;
+        parent::__construct($message, 0, $previous);
+    }
+
+    public function getErrorCode(): string
+    {
+        return $this->errorCode;
+    }
+
+    public function getHttpStatus(): int
+    {
+        return $this->httpStatus;
+    }
+
+    public function getContext(): array
+    {
+        return $this->context;
+    }
+
+    public function render(Request $request)
+    {
+        if ($request->expectsJson()) {
+            return response()->json([
+                'success' => false,
+                'error' => [
+                    'code' => $this->errorCode,
+                    'message' => $this->getMessage(),
+                ],
+            ], $this->httpStatus);
+        }
+
+        return redirect()->back()
+            ->with('error', $this->getMessage())
+            ->withInput();
+    }
+
+    public function report(): void
+    {
+        \Log::warning("[{$this->errorCode}] {$this->getMessage()}", $this->context);
+    }
+}
+```
+
+### KrsException — Factory Method Pattern
+
+```php
+<?php
+
+namespace App\Exceptions;
+
+use Illuminate\Http\Response;
+
+class KrsException extends SiakadException
+{
+    public const NO_ACTIVE_SEMESTER = 'KRS_NO_ACTIVE_SEMESTER';
+    public const ALREADY_SUBMITTED = 'KRS_ALREADY_SUBMITTED';
+    public const ALREADY_LOCKED = 'KRS_LOCKED';
+    public const CLASS_FULL = 'KRS_CLASS_FULL';
+    public const COURSE_ALREADY_TAKEN = 'KRS_COURSE_TAKEN';
+    public const SKS_LIMIT_EXCEEDED = 'KRS_SKS_EXCEEDED';
+    public const EMPTY_KRS = 'KRS_EMPTY';
+    public const INVALID_STATUS = 'KRS_INVALID_STATUS';
+    public const NOT_FOUND = 'KRS_NOT_FOUND';
+
+    protected string $errorCode = 'KRS_ERROR';
+    protected int $httpStatus = Response::HTTP_UNPROCESSABLE_ENTITY;
+
+    public static function noActiveSemester(): self
+    {
+        $e = new self('Tidak ada tahun akademik yang aktif.');
+        $e->errorCode = self::NO_ACTIVE_SEMESTER;
+        $e->httpStatus = Response::HTTP_SERVICE_UNAVAILABLE;
+        return $e;
+    }
+
+    public static function alreadySubmitted(): self
+    {
+        $e = new self('KRS sudah disubmit/disetujui. Tidak dapat diubah.');
+        $e->errorCode = self::ALREADY_SUBMITTED;
+        return $e;
+    }
+
+    public static function locked(): self
+    {
+        $e = new self('KRS terkunci. Tidak dapat diubah.');
+        $e->errorCode = self::ALREADY_LOCKED;
+        return $e;
+    }
+
+    public static function classFull(string $className, int $capacity): self
+    {
+        $e = new self("Kelas {$className} penuh! Kapasitas: {$capacity}");
+        $e->errorCode = self::CLASS_FULL;
+        $e->context = ['class' => $className, 'capacity' => $capacity];
+        return $e;
+    }
+
+    public static function courseAlreadyTaken(string $courseName): self
+    {
+        $e = new self("Mata kuliah {$courseName} sudah diambil.");
+        $e->errorCode = self::COURSE_ALREADY_TAKEN;
+        $e->context = ['course' => $courseName];
+        return $e;
+    }
+
+    public static function sksLimitExceeded(int $currentSks, int $newSks, int $maxSks): self
+    {
+        $total = $currentSks + $newSks;
+        $e = new self("Melebihi batas SKS ({$maxSks}). Total SKS akan menjadi: {$total}");
+        $e->errorCode = self::SKS_LIMIT_EXCEEDED;
+        $e->context = [
+            'current_sks' => $currentSks,
+            'new_sks' => $newSks,
+            'max_sks' => $maxSks,
+            'total' => $total,
+        ];
+        return $e;
+    }
+
+    public static function emptyKrs(): self
+    {
+        $e = new self('KRS kosong tidak dapat diajukan.');
+        $e->errorCode = self::EMPTY_KRS;
+        return $e;
+    }
+
+    public static function invalidStatus(string $currentStatus, string $requiredStatus): self
+    {
+        $e = new self("KRS tidak dalam status {$requiredStatus}. Status saat ini: {$currentStatus}");
+        $e->errorCode = self::INVALID_STATUS;
+        $e->context = ['current' => $currentStatus, 'required' => $requiredStatus];
+        return $e;
+    }
+
+    public static function notFound(int $krsId): self
+    {
+        $e = new self("KRS dengan ID {$krsId} tidak ditemukan.");
+        $e->errorCode = self::NOT_FOUND;
+        $e->httpStatus = Response::HTTP_NOT_FOUND;
+        $e->context = ['krs_id' => $krsId];
+        return $e;
+    }
+}
+```
+
+Each factory method sets the appropriate error code, HTTP status, and context data. The `render()` method in the base class handles both JSON API and redirect-with-flash responses automatically.
+
+---
+
+## 9.7 Phase 6 — Service Layer
+
+### Service Dependency Graph
+
+```
+CacheService ←── AkademikService
+                      ↑
+AkademikCalculationService ←── KrsService
+                      ↑
+                 CacheService
+
+UserService         (standalone)
+JadwalService       (standalone)
+PenilaianService    (standalone)
+PresensiService     (standalone)
+NotificationService (standalone)
+ActivityLogService  (standalone)
+
+config ←── AdvisorContextBuilder ←── AiAdvisorService
+config ←── AdvisorGuards ─────────┘
+```
+
+Build services in this order: CacheService → AkademikCalculationService → AkademikService → standalone services → AI services.
+
+### Complete Service: UserService
+
+```php
+<?php
+
+namespace App\Services;
+
+use App\Models\User;
+use App\Models\Mahasiswa;
+use App\Models\Dosen;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\DB;
+
+class UserService
+{
+    public function createUser(array $data)
+    {
+        return DB::transaction(function () use ($data) {
+            $user = User::create([
+                'name'        => $data['name'],
+                'email'       => $data['email'],
+                'password'    => Hash::make($data['password']),
+                'role'        => $data['role'],
+                'fakultas_id' => $data['fakultas_id'] ?? null,
+            ]);
+
+            if ($data['role'] === 'mahasiswa') {
+                Mahasiswa::create([
+                    'user_id'  => $user->id,
+                    'nim'      => $data['nim'],
+                    'prodi_id' => $data['prodi_id'],
+                    'angkatan' => $data['angkatan'],
+                ]);
+            } elseif ($data['role'] === 'dosen') {
+                Dosen::create([
+                    'user_id'  => $user->id,
+                    'nidn'     => $data['nidn'],
+                    'prodi_id' => $data['prodi_id'],
+                ]);
+            }
+
+            return $user;
+        });
+    }
+}
+```
+
+The transaction wraps User creation and role-specific profile creation. If Mahasiswa or Dosen creation fails, the User record is rolled back. The `match`-like conditional creates the appropriate profile model based on the user's role.
+
+### Complete Service: KrsService
+
+```php
+<?php
+
+namespace App\Services;
+
+use App\Exceptions\KrsException;
+use App\Models\Kelas;
+use App\Models\Krs;
+use App\Models\KrsDetail;
+use App\Models\Mahasiswa;
+use Illuminate\Support\Facades\DB;
+
+class KrsService
+{
+    protected AkademikService $akademikService;
+    protected AkademikCalculationService $calculationService;
+
+    public function __construct(
+        AkademikService $akademikService,
+        AkademikCalculationService $calculationService
+    ) {
+        $this->akademikService = $akademikService;
+        $this->calculationService = $calculationService;
+    }
+
+    public function getActiveKrsOrNew(Mahasiswa $mahasiswa)
+    {
+        $tahunAktif = $this->akademikService->getActiveTahun();
+        if (!$tahunAktif) {
+            throw KrsException::noActiveSemester();
+        }
+
+        return Krs::firstOrCreate(
+            [
+                'mahasiswa_id' => $mahasiswa->id,
+                'tahun_akademik_id' => $tahunAktif->id
+            ],
+            ['status' => 'draft']
+        );
+    }
+
+    /**
+     * Calculate max SKS based on last semester's IPS.
+     * New students (no previous grades) get the default max.
+     */
+    public function getMaxSksForMahasiswa(Mahasiswa $mahasiswa): int
+    {
+        $ipsHistory = $this->calculationService->getIPSHistory($mahasiswa);
+
+        $semestersWithGrades = $ipsHistory->filter(fn($s) => $s['ips'] > 0);
+
+        if ($semestersWithGrades->isEmpty()) {
+            return config('siakad.maks_sks.default', 24);
+        }
+
+        $lastSemester = $semestersWithGrades->last();
+        $lastIps = $lastSemester['ips'] ?? 0;
+
+        return $this->calculationService->getMaxSKS($lastIps);
+    }
+
+    public function addKelas(Krs $krs, $kelasId)
+    {
+        return DB::transaction(function () use ($krs, $kelasId) {
+            // Guard: KRS must be in draft status
+            if ($krs->status !== 'draft') {
+                throw KrsException::alreadySubmitted();
+            }
+
+            $kelas = Kelas::with('mataKuliah')->findOrFail($kelasId);
+
+            // 1. Check class capacity
+            $terisi = KrsDetail::where('kelas_id', $kelasId)->count();
+            if ($terisi >= $kelas->kapasitas) {
+                throw KrsException::classFull($kelas->nama_kelas, $kelas->kapasitas);
+            }
+
+            // 2. Check duplicate mata_kuliah in this KRS
+            $mkTaken = $krs->krsDetail()->whereHas('kelas', function($q) use ($kelas) {
+                $q->where('mata_kuliah_id', $kelas->mata_kuliah_id);
+            })->exists();
+
+            if ($mkTaken) {
+                throw KrsException::courseAlreadyTaken($kelas->mataKuliah->nama_mk);
+            }
+
+            // 3. Check SKS limit based on previous IPS
+            $sksSaatIni = $krs->krsDetail->sum(
+                fn($detail) => $detail->kelas->mataKuliah->sks
+            );
+            $sksBaru = $kelas->mataKuliah->sks;
+
+            $mahasiswa = $krs->mahasiswa;
+            $maxSks = $this->getMaxSksForMahasiswa($mahasiswa);
+
+            if (($sksSaatIni + $sksBaru) > $maxSks) {
+                throw KrsException::sksLimitExceeded($sksSaatIni, $sksBaru, $maxSks);
+            }
+
+            return KrsDetail::create([
+                'krs_id' => $krs->id,
+                'kelas_id' => $kelasId
+            ]);
+        });
+    }
+
+    public function removeKelas(Krs $krs, $detailId)
+    {
+        if ($krs->status !== 'draft') {
+            throw KrsException::locked();
+        }
+
+        $detail = $krs->krsDetail()->findOrFail($detailId);
+        $detail->delete();
+    }
+
+    public function submitKrs(Krs $krs)
+    {
+        if ($krs->krsDetail()->count() === 0) {
+            throw KrsException::emptyKrs();
+        }
+        $krs->update(['status' => 'pending']);
+    }
+
+    public function approveKrs(Krs $krs)
+    {
+        if ($krs->status !== 'pending') {
+            throw KrsException::invalidStatus($krs->status, 'pending');
+        }
+        $krs->update(['status' => 'approved']);
+    }
+
+    public function rejectKrs(Krs $krs)
+    {
+        if ($krs->status !== 'pending') {
+            throw KrsException::invalidStatus($krs->status, 'pending');
+        }
+        $krs->update(['status' => 'rejected']);
+    }
+}
+```
+
+The `addKelas` method performs three validation checks inside a transaction:
+
+1. **Capacity check** — counts existing KrsDetail rows for the target kelas
+2. **Duplicate check** — queries whether any existing KrsDetail in this KRS references the same mata_kuliah_id
+3. **SKS limit check** — sums current SKS across all KrsDetail entries and compares against the IPS-based maximum
+
+### Complete Service: PenilaianService
+
+```php
+<?php
+
+namespace App\Services;
+
+use App\Models\Nilai;
+use Illuminate\Support\Facades\DB;
+
+class PenilaianService
+{
+    public function inputNilai($mahasiswaId, $kelasId, $nilaiAngka)
+    {
+        $konversi = $this->getNilaiHuruf($nilaiAngka);
+
+        return Nilai::updateOrCreate(
+            [
+                'mahasiswa_id' => $mahasiswaId,
+                'kelas_id'     => $kelasId,
+            ],
+            [
+                'nilai_angka' => $nilaiAngka,
+                'nilai_huruf' => $konversi['huruf'],
+            ]
+        );
+    }
+
+    private function getNilaiHuruf($angka)
+    {
+        $rules = config('siakad.nilai_konversi');
+
+        foreach ($rules as $rule) {
+            if ($angka >= $rule['min'] && $angka <= $rule['max']) {
+                return $rule;
+            }
+        }
+
+        return ['huruf' => 'E', 'bobot' => 0];
+    }
+
+    public function bulkInputNilai($kelasId, array $dataNilai)
+    {
+        return DB::transaction(function () use ($kelasId, $dataNilai) {
+            $updated = 0;
+            foreach ($dataNilai as $mahasiswaId => $nilaiAngka) {
+                if (is_null($nilaiAngka)) {
+                    continue;
+                }
+
+                $this->inputNilai($mahasiswaId, $kelasId, $nilaiAngka);
+                $updated++;
+            }
+            return $updated;
+        });
+    }
+}
+```
+
+`updateOrCreate` ensures idempotent grade entry — calling `inputNilai` twice for the same student-class pair updates the existing record instead of creating a duplicate. The grade conversion reads from `config/siakad.php` (documented in Section 9.10).
+
+---
+
+## 9.8 Phase 7 — Routes
+
+### Root Router: web.php
+
+```php
+<?php
+
+use Illuminate\Support\Facades\Route;
+
+// Root redirects to login
+Route::get('/', fn() => redirect()->route('login'));
+
+// Role-based dashboard redirect
+Route::get('/dashboard', function () {
+    $routes = [
+        'superadmin'     => 'admin.dashboard',
+        'admin_fakultas' => 'admin.dashboard',
+        'dosen'          => 'dosen.dashboard',
+        'mahasiswa'      => 'mahasiswa.dashboard',
+    ];
+
+    $role = auth()->user()->role;
+
+    return redirect()->route($routes[$role] ?? 'login');
+})->middleware(['auth', 'verified'])->name('dashboard');
+
+require __DIR__.'/auth.php';
+require __DIR__.'/health.php';
+require __DIR__.'/notification.php';
+require __DIR__.'/profile.php';
+require __DIR__.'/admin/index.php';
+require __DIR__.'/dosen/index.php';
+require __DIR__.'/mahasiswa/index.php';
+```
+
+### Route File Structure
+
+```
+routes/
+├── web.php
+├── auth.php              # Breeze-generated auth routes
+├── health.php            # Health check endpoint
+├── notification.php      # Shared notification routes
+├── profile.php           # Shared profile routes
+├── admin/
+│   ├── index.php         # Requires all admin route files
+│   ├── dashboard.php
+│   ├── mahasiswa.php
+│   ├── dosen.php
+│   ├── krs.php
+│   ├── user.php
+│   ├── skripsi.php
+│   ├── kp.php
+│   ├── kehadiran.php
+│   ├── ruangan.php
+│   └── master-data/
+│       └── index.php     # Fakultas, Prodi, MataKuliah, TahunAkademik
+├── dosen/
+│   ├── index.php
+│   ├── dashboard.php
+│   ├── penilaian.php
+│   ├── presensi.php
+│   ├── kehadiran.php
+│   ├── skripsi.php
+│   ├── bimbingan.php
+│   ├── kp.php
+│   ├── lms.php
+│   ├── materi.php
+│   └── tugas.php
+└── mahasiswa/
+    ├── index.php
+    ├── dashboard.php
+    ├── krs.php
+    ├── khs.php
+    ├── transkrip.php
+    ├── jadwal.php
+    ├── presensi.php
+    ├── skripsi.php
+    ├── kp.php
+    ├── biodata.php
+    ├── export.php
+    ├── ai.php
+    ├── lms.php
+    ├── materi.php
+    └── tugas.php
+```
+
+### Admin Route Pattern
+
+Every admin route file follows this pattern:
+
+```php
+<?php
+
+use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Admin\MahasiswaController;
+
+Route::middleware(['auth', 'role:admin', 'fakultas.scope'])
+    ->prefix('admin')
+    ->name('admin.')
+    ->group(function () {
+        Route::get('/mahasiswa/export', [MahasiswaController::class, 'export'])
+            ->name('mahasiswa.export');
+        Route::get('/mahasiswa', [MahasiswaController::class, 'index'])
+            ->name('mahasiswa.index');
+        Route::post('/mahasiswa', [MahasiswaController::class, 'store'])
+            ->name('mahasiswa.store');
+        Route::get('/mahasiswa/{mahasiswa}', [MahasiswaController::class, 'show'])
+            ->name('mahasiswa.show');
+        Route::put('/mahasiswa/{mahasiswa}', [MahasiswaController::class, 'update'])
+            ->name('mahasiswa.update');
+        Route::delete('/mahasiswa/{mahasiswa}', [MahasiswaController::class, 'destroy'])
+            ->name('mahasiswa.destroy');
+    });
+```
+
+Three middleware are stacked:
+1. `auth` — must be logged in
+2. `role:admin` — must be superadmin or admin_fakultas
+3. `fakultas.scope` — injects faculty scoping for admin_fakultas users
+
+---
+
+## 9.9 Phase 8 — Controller Patterns
+
+### Controller Count by Role
+
+| Role Group | Count | Pattern |
+|-----------|-------|---------|
+| Admin | 14 | CRUD + faculty scoping via request |
+| Auth | 11 | Breeze-generated (mostly untouched) |
+| Dosen | 10 | Own-data scoping via `dosen_id` |
+| Mahasiswa | 14 | Own-data scoping via `mahasiswa_id` |
+| Shared | 2 | HealthController, NotificationController |
+
+### Admin Controller Pattern (Faculty-Scoped CRUD)
+
+```php
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Models\Mahasiswa;
+use Illuminate\Http\Request;
+
+class MahasiswaController extends Controller
+{
+    public function index(Request $request)
+    {
+        $query = Mahasiswa::query()
+            ->with(['user', 'prodi.fakultas', 'dosenPa.user']);
+
+        // Apply faculty scope if present (admin_fakultas)
+        if ($request->input('fakultas_scoped')) {
+            $query->whereHas('prodi', function ($q) use ($request) {
+                $q->where('fakultas_id', $request->input('fakultas_scope'));
+            });
+        }
+
+        // Search
+        if ($search = $request->input('search')) {
+            $query->where(function ($q) use ($search) {
+                $q->where('nim', 'like', "%{$search}%")
+                  ->orWhereHas('user', fn($q) => $q->where('name', 'like', "%{$search}%"));
+            });
+        }
+
+        $mahasiswa = $query->paginate(config('siakad.pagination'));
+
+        return view('admin.mahasiswa.index', compact('mahasiswa'));
+    }
+
+    // store(), show(), update(), destroy() follow similar scoping pattern
+}
+```
+
+### Dosen Controller Pattern (Own-Data Scoping)
+
+```php
+<?php
+
+namespace App\Http\Controllers\Dosen;
+
+use App\Http\Controllers\Controller;
+use App\Models\Kelas;
+use App\Services\PenilaianService;
+use Illuminate\Http\Request;
+
+class PenilaianController extends Controller
+{
+    public function __construct(
+        private PenilaianService $penilaianService
+    ) {}
+
+    public function index(Request $request)
+    {
+        $dosen = $request->user()->dosen;
+
+        $kelasList = Kelas::where('dosen_id', $dosen->id)
+            ->with(['mataKuliah', 'tahunAkademik'])
+            ->get();
+
+        return view('dosen.penilaian.index', compact('kelasList'));
+    }
+
+    public function store(Request $request, Kelas $kelas)
+    {
+        // Verify this kelas belongs to the authenticated dosen
+        abort_unless($kelas->dosen_id === $request->user()->dosen->id, 403);
+
+        $validated = $request->validate([
+            'nilai' => 'required|array',
+            'nilai.*' => 'nullable|numeric|min:0|max:100',
+        ]);
+
+        $count = $this->penilaianService->bulkInputNilai(
+            $kelas->id,
+            $validated['nilai']
+        );
+
+        return redirect()->back()->with('success', "{$count} nilai berhasil disimpan.");
+    }
+}
+```
+
+### Mahasiswa Controller Pattern (Own-Data Scoping)
+
+```php
+<?php
+
+namespace App\Http\Controllers\Mahasiswa;
+
+use App\Http\Controllers\Controller;
+use App\Services\KrsService;
+use Illuminate\Http\Request;
+
+class KrsController extends Controller
+{
+    public function __construct(
+        private KrsService $krsService
+    ) {}
+
+    public function index(Request $request)
+    {
+        $mahasiswa = $request->user()->mahasiswa;
+        $krs = $this->krsService->getActiveKrsOrNew($mahasiswa);
+
+        $krs->load('krsDetail.kelas.mataKuliah');
+
+        return view('mahasiswa.krs.index', compact('krs', 'mahasiswa'));
+    }
+
+    public function addKelas(Request $request)
+    {
+        $mahasiswa = $request->user()->mahasiswa;
+        $krs = $this->krsService->getActiveKrsOrNew($mahasiswa);
+
+        $this->krsService->addKelas($krs, $request->input('kelas_id'));
+
+        return redirect()->back()->with('success', 'Kelas berhasil ditambahkan.');
+    }
+
+    public function removeKelas(Request $request, $detailId)
+    {
+        $mahasiswa = $request->user()->mahasiswa;
+        $krs = $this->krsService->getActiveKrsOrNew($mahasiswa);
+
+        $this->krsService->removeKelas($krs, $detailId);
+
+        return redirect()->back()->with('success', 'Kelas berhasil dihapus.');
+    }
+
+    public function submit(Request $request)
+    {
+        $mahasiswa = $request->user()->mahasiswa;
+        $krs = $this->krsService->getActiveKrsOrNew($mahasiswa);
+
+        $this->krsService->submitKrs($krs);
+
+        return redirect()->back()->with('success', 'KRS berhasil diajukan.');
+    }
+}
+```
+
+---
+
+## 9.10 Phase 9 — Configuration Files
+
+### config/siakad.php (Complete)
+
+```php
+<?php
+
+return [
+
+    /*
+    |--------------------------------------------------------------------------
+    | Role Sistem SIAKAD
+    |--------------------------------------------------------------------------
+    */
+
+    'roles' => [
+        'admin',
+        'dosen',
+        'mahasiswa',
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Label Semester
+    |--------------------------------------------------------------------------
+    */
+
+    'semester_labels' => [
+        1 => 'Ganjil',
+        2 => 'Genap',
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Status KRS
+    |--------------------------------------------------------------------------
+    |
+    | draft     → mahasiswa masih mengedit
+    | pending   → menunggu persetujuan admin/dosen PA
+    | approved  → disetujui & final
+    | rejected  → ditolak, mahasiswa harus revisi
+    |
+    */
+
+    'krs_status' => [
+        'draft',
+        'pending',
+        'approved',
+        'rejected',
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Konversi Nilai
+    |--------------------------------------------------------------------------
+    |
+    | 8 grade ranges mapping numeric scores to letter grades and weight values.
+    | Used by PenilaianService::getNilaiHuruf()
+    |
+    */
+
+    'nilai_konversi' => [
+        ['min' => 85, 'max' => 100, 'huruf' => 'A',  'bobot' => 4.00],
+        ['min' => 80, 'max' => 84,  'huruf' => 'A-', 'bobot' => 3.75],
+        ['min' => 75, 'max' => 79,  'huruf' => 'B+', 'bobot' => 3.50],
+        ['min' => 70, 'max' => 74,  'huruf' => 'B',  'bobot' => 3.00],
+        ['min' => 65, 'max' => 69,  'huruf' => 'C+', 'bobot' => 2.50],
+        ['min' => 60, 'max' => 64,  'huruf' => 'C',  'bobot' => 2.00],
+        ['min' => 55, 'max' => 59,  'huruf' => 'D',  'bobot' => 1.00],
+        ['min' => 0,  'max' => 54,  'huruf' => 'E',  'bobot' => 0.00],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Status Nilai
+    |--------------------------------------------------------------------------
+    */
+
+    'nilai_status' => [
+        'draft',        // nilai boleh diedit dosen
+        'submitted',    // menunggu verifikasi
+        'final',        // terkunci, tidak bisa diubah
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Aturan Batas SKS Mahasiswa
+    |--------------------------------------------------------------------------
+    |
+    | Maps previous semester's IPS (GPA) to maximum SKS allowed.
+    | Used by AkademikCalculationService::getMaxSKS()
+    |
+    */
+
+    'maks_sks' => [
+        'default' => 24,
+        'ips_rules' => [
+            ['min' => 3.51, 'max' => 4.00, 'sks' => 24],
+            ['min' => 3.01, 'max' => 3.50, 'sks' => 22],
+            ['min' => 2.51, 'max' => 3.00, 'sks' => 20],
+            ['min' => 2.00, 'max' => 2.50, 'sks' => 18],
+            ['min' => 0.00, 'max' => 1.99, 'sks' => 14],
+        ]
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Kapasitas Kelas Default
+    |--------------------------------------------------------------------------
+    */
+
+    'kelas_kapasitas_default' => 40,
+
+    /*
+    |--------------------------------------------------------------------------
+    | Pagination Default
+    |--------------------------------------------------------------------------
+    */
+
+    'pagination' => 15,
+
+    /*
+    |--------------------------------------------------------------------------
+    | Format Tanggal Akademik
+    |--------------------------------------------------------------------------
+    */
+
+    'format_tanggal' => 'd-m-Y',
+
+    /*
+    |--------------------------------------------------------------------------
+    | General Settings
+    |--------------------------------------------------------------------------
+    */
+
+    'app_name' => 'SIAKAD Universitas',
+    'version'  => '1.0.0',
+
+];
+```
+
+### config/academic_rules.php (Complete)
+
+```php
+<?php
+
+return [
+
+    /*
+    |--------------------------------------------------------------------------
+    | Aturan Akademik per Program Studi
+    |--------------------------------------------------------------------------
+    */
+
+    'prodi' => [
+        'sistem_informasi_unri' => [
+            'nama' => 'Sistem Informasi',
+            'universitas' => 'Universitas Riau',
+            'graduation_total_sks' => 144,
+            'thesis_min_sks' => 144,
+            'internship' => [
+                'sks' => 3,
+                'min_sks_required' => 90,
+                'nama' => 'Kerja Praktek',
+            ],
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Default Rules (fallback if prodi has no specific config)
+    |--------------------------------------------------------------------------
+    */
+
+    'default' => [
+        'graduation_total_sks' => 144,
+        'thesis_min_sks' => 144,
+        'internship' => [
+            'sks' => 3,
+            'min_sks_required' => 90,
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Kurikulum Mata Kuliah per Semester
+    |--------------------------------------------------------------------------
+    */
+
+    'kurikulum' => [
+        'sistem_informasi_unri' => [
+            6 => [
+                ['kode' => 'TIF601', 'nama' => 'Rekayasa Perangkat Lunak', 'sks' => 3],
+                ['kode' => 'TIF602', 'nama' => 'Pemrograman Web Lanjut', 'sks' => 3],
+                ['kode' => 'TIF603', 'nama' => 'Sistem Informasi Manajemen', 'sks' => 3],
+                ['kode' => 'TIF604', 'nama' => 'Data Mining', 'sks' => 3],
+                ['kode' => 'TIF605', 'nama' => 'Jaringan Komputer', 'sks' => 3],
+                ['kode' => 'TIF606', 'nama' => 'Keamanan Sistem Informasi', 'sks' => 3],
+            ],
+            7 => [
+                ['kode' => 'TIF701', 'nama' => 'Big Data', 'sks' => 3],
+                ['kode' => 'TIF702', 'nama' => 'Machine Learning', 'sks' => 3],
+                ['kode' => 'TIF703', 'nama' => 'Cloud Computing', 'sks' => 3],
+                ['kode' => 'TIF704', 'nama' => 'Enterprise Resource Planning', 'sks' => 3],
+                ['kode' => 'TIF705', 'nama' => 'Kerja Praktek', 'sks' => 3],
+                ['kode' => 'TIF706', 'nama' => 'Metodologi Penelitian', 'sks' => 3],
+            ],
+            8 => [
+                ['kode' => 'TIF801', 'nama' => 'Skripsi', 'sks' => 6],
+                ['kode' => 'TIF802', 'nama' => 'Seminar', 'sks' => 2],
+            ],
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Status Mata Kuliah
+    |--------------------------------------------------------------------------
+    */
+
+    'course_status' => [
+        'LULUS' => 'Sudah lulus dengan nilai final di KHS',
+        'SEDANG_DIAMBIL' => 'Sedang diambil di KRS aktif',
+        'TERSEDIA_DI_KURIKULUM' => 'Tersedia di kurikulum semester mendatang',
+        'TIDAK_TERSEDIA' => 'Tidak ada di kurikulum/data sistem',
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Threshold dan Batasan
+    |--------------------------------------------------------------------------
+    */
+
+    'thresholds' => [
+        'attendance_minimum_percentage' => 75,
+        'attendance_warning_percentage' => 80,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Forbidden Assumption Phrases
+    |--------------------------------------------------------------------------
+    |
+    | Words the AI advisor must not use when discussing academic rules.
+    | The AdvisorGuards service checks responses against this list.
+    |
+    */
+
+    'forbidden_assumption_phrases' => [
+        'biasanya',
+        'umumnya',
+        'tergantung',
+        'pada umumnya',
+        'lazimnya',
+        'seringkali',
+        'mungkin sekitar',
+        'kira-kira',
+        'sekitar',
+        'kurang lebih',
+        'rata-rata universitas',
+        'standar nasional',
+    ],
+
+];
+```
+
+---
+
+## 9.11 Phase 10 — Seeders and Factories
+
+### RolePermissionSeeder (Complete)
+
+```php
+<?php
+
+namespace Database\Seeders;
+
+use Illuminate\Database\Seeder;
+use Spatie\Permission\Models\Role;
+use Spatie\Permission\Models\Permission;
+
+class RolePermissionSeeder extends Seeder
+{
+    public function run(): void
+    {
+        // Reset cached roles and permissions
+        app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
+
+        $permissions = [
+            // Mahasiswa management
+            'view mahasiswa', 'create mahasiswa', 'edit mahasiswa', 'delete mahasiswa',
+            // Dosen management
+            'view dosen', 'create dosen', 'edit dosen', 'delete dosen',
+            // Kelas management
+            'view kelas', 'create kelas', 'edit kelas', 'delete kelas',
+            // Mata Kuliah management
+            'view mata kuliah', 'create mata kuliah', 'edit mata kuliah', 'delete mata kuliah',
+            // KRS management
+            'view krs', 'approve krs', 'reject krs',
+            // Nilai management
+            'view nilai', 'input nilai',
+            // Skripsi management
+            'view skripsi', 'manage skripsi',
+            // KP management
+            'view kp', 'manage kp',
+            // User management
+            'view users', 'create users', 'edit users', 'delete users',
+            // Master data
+            'manage fakultas', 'manage prodi', 'manage tahun akademik', 'manage ruangan',
+            // Reports
+            'view reports', 'export reports',
+            // Announcements
+            'manage announcements',
+        ];
+
+        foreach ($permissions as $permission) {
+            Permission::firstOrCreate(['name' => $permission]);
+        }
+
+        // Superadmin — all permissions
+        $superadmin = Role::firstOrCreate(['name' => 'superadmin']);
+        $superadmin->givePermissionTo(Permission::all());
+
+        // Admin Fakultas — scoped admin permissions
+        $adminFakultas = Role::firstOrCreate(['name' => 'admin_fakultas']);
+        $adminFakultas->givePermissionTo([
+            'view mahasiswa', 'create mahasiswa', 'edit mahasiswa',
+            'view dosen', 'create dosen', 'edit dosen',
+            'view kelas', 'create kelas', 'edit kelas', 'delete kelas',
+            'view mata kuliah', 'create mata kuliah', 'edit mata kuliah',
+            'view krs', 'approve krs', 'reject krs',
+            'view nilai',
+            'view skripsi', 'manage skripsi',
+            'view kp', 'manage kp',
+            'manage prodi', 'manage ruangan',
+            'view reports', 'export reports',
+            'manage announcements',
+        ]);
+
+        // Dosen — limited to own data
+        $dosen = Role::firstOrCreate(['name' => 'dosen']);
+        $dosen->givePermissionTo([
+            'view kelas',
+            'view nilai', 'input nilai',
+            'view skripsi',
+            'view kp',
+            'view mahasiswa',
+        ]);
+
+        // Mahasiswa — access controlled by route middleware, not permissions
+        Role::firstOrCreate(['name' => 'mahasiswa']);
+
+        $this->command->info('Roles and permissions created successfully!');
+    }
+}
+```
+
+### DatabaseSeeder — Key Structure
+
+```php
+<?php
+
+namespace Database\Seeders;
+
+use App\Models\User;
+use App\Models\Fakultas;
+use App\Models\Prodi;
+use App\Models\MataKuliah;
+use App\Models\Kelas;
+use App\Models\Dosen;
+use App\Models\Mahasiswa;
+use App\Models\TahunAkademik;
+use App\Models\Krs;
+use App\Models\KrsDetail;
+use App\Models\Nilai;
+use App\Models\JadwalKuliah;
+use App\Models\Ruangan;
+use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\Hash;
+
+class DatabaseSeeder extends Seeder
+{
+    public function run(): void
+    {
+        $this->call(RolePermissionSeeder::class);
+
+        // 1. SUPERADMIN
+        User::create([
+            'name' => 'Super Administrator',
+            'email' => 'superadmin@siakad.test',
+            'password' => Hash::make('password'),
+            'role' => 'superadmin',
+        ]);
+
+        // 2. TAHUN AKADEMIK (multiple semesters for history)
+        TahunAkademik::create([
+            'tahun' => '2023/2024', 'semester' => 'Ganjil',
+            'is_active' => false,
+            'tanggal_mulai' => '2023-09-01',
+            'tanggal_selesai' => '2024-01-31',
+        ]);
+
+        $taAktif = TahunAkademik::create([
+            'tahun' => '2024/2025', 'semester' => 'Ganjil',
+            'is_active' => true,
+            'tanggal_mulai' => '2024-09-01',
+            'tanggal_selesai' => '2025-01-31',
+        ]);
+
+        // 3. FAKULTAS + ADMIN
+        $fakultas = Fakultas::create(['nama' => 'Fakultas Teknik dan Ilmu Komputer']);
+
+        User::create([
+            'name' => 'Admin FTIK',
+            'email' => 'admin.ftik@siakad.test',
+            'password' => Hash::make('password'),
+            'role' => 'admin_fakultas',
+            'fakultas_id' => $fakultas->id,
+        ]);
+
+        // 4. PRODI
+        $prodi = Prodi::create([
+            'nama' => 'Teknik Informatika',
+            'fakultas_id' => $fakultas->id,
+        ]);
+
+        // 5. RUANGAN
+        Ruangan::create([
+            'kode_ruangan' => 'LC-01',
+            'nama_ruangan' => 'Lab Komputer 1',
+            'kapasitas' => 40,
+            'gedung' => 'Gedung A',
+            'lantai' => 1,
+        ]);
+
+        // 6. MATA KULIAH — 144 SKS across 8 semesters
+        //    (See DatabaseSeeder::getKurikulum() for full list)
+
+        // 7. DOSEN
+        $dosenUser = User::create([
+            'name' => 'Dr. Ahmad Fauzi, M.Kom.',
+            'email' => 'dosen@siakad.test',
+            'password' => Hash::make('password'),
+            'role' => 'dosen',
+        ]);
+
+        $dosen = Dosen::create([
+            'user_id' => $dosenUser->id,
+            'nidn' => '0012056701',
+            'prodi_id' => $prodi->id,
+        ]);
+
+        // 8. KELAS for each mata kuliah
+        // 9. MAHASISWA with 4 semesters of academic history
+        // 10. KRS + NILAI for semesters 1-4 (approved, with grades)
+        // 11. KRS semester 5 (draft, no grades yet)
+    }
+
+    /**
+     * Grade conversion helper used during seeding.
+     */
+    private function convertToLetter(int $nilai): string
+    {
+        return match (true) {
+            $nilai >= 85 => 'A',
+            $nilai >= 80 => 'A-',
+            $nilai >= 75 => 'B+',
+            $nilai >= 70 => 'B',
+            $nilai >= 65 => 'C+',
+            $nilai >= 60 => 'C',
+            $nilai >= 55 => 'D',
+            default => 'E',
+        };
+    }
+}
+```
+
+The seeder creates a complete test dataset with these login credentials:
+
+| Role | Email | Password |
+|------|-------|----------|
+| Superadmin | superadmin@siakad.test | password |
+| Admin Fakultas | admin.ftik@siakad.test | password |
+| Dosen | dosen@siakad.test | password |
+| Mahasiswa | mahasiswa@siakad.test | password |
+
+The mahasiswa account has 4 semesters of completed academic history (grades, KRS records) and a draft KRS for semester 5.
+
+### Running the Seeder
+
+```bash
+php artisan db:seed --no-interaction
+```
+
+Or to reset and re-seed:
+
+```bash
+php artisan migrate:fresh --seed --no-interaction
+```
+
+---
+
+## 9.12 Phase 11 — Frontend
+
+### Layout Structure
+
+SIAKAD uses two Blade layouts:
+
+1. **`layouts/app.blade.php`** — authenticated pages: sidebar navigation, dark mode toggle, notification dropdown, breadcrumbs
+2. **`layouts/guest.blade.php`** — login/register pages: split-panel design with glassmorphism effects
+
+### CSS Design System (resources/css/app.css)
+
+The design system is defined in `resources/css/app.css` and extends Tailwind with SIAKAD-specific utilities:
+
+```css
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+    /* Card component */
+    .card {
+        @apply bg-white dark:bg-gray-800 rounded-xl shadow-sm
+               border border-gray-200 dark:border-gray-700;
+    }
+
+    .card-header {
+        @apply px-6 py-4 border-b border-gray-200 dark:border-gray-700;
+    }
+
+    .card-body {
+        @apply px-6 py-4;
+    }
+
+    /* Button variants */
+    .btn-primary {
+        @apply bg-blue-600 hover:bg-blue-700 text-white
+               px-4 py-2 rounded-lg font-medium
+               transition-colors duration-150;
+    }
+
+    .btn-danger {
+        @apply bg-red-600 hover:bg-red-700 text-white
+               px-4 py-2 rounded-lg font-medium
+               transition-colors duration-150;
+    }
+
+    /* Status badges */
+    .badge-draft {
+        @apply bg-gray-100 text-gray-700 px-2.5 py-0.5 rounded-full text-xs font-medium;
+    }
+
+    .badge-pending {
+        @apply bg-yellow-100 text-yellow-700 px-2.5 py-0.5 rounded-full text-xs font-medium;
+    }
+
+    .badge-approved {
+        @apply bg-green-100 text-green-700 px-2.5 py-0.5 rounded-full text-xs font-medium;
+    }
+
+    .badge-rejected {
+        @apply bg-red-100 text-red-700 px-2.5 py-0.5 rounded-full text-xs font-medium;
+    }
+
+    /* Table styling */
+    .table-container {
+        @apply overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700;
+    }
+
+    .table-header {
+        @apply bg-gray-50 dark:bg-gray-700/50;
+    }
+}
+```
+
+### Tailwind Configuration
+
+Custom SIAKAD colors are added to `tailwind.config.js`:
+
+```js
+export default {
+    content: [
+        './vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php',
+        './storage/framework/views/*.php',
+        './resources/views/**/*.blade.php',
+    ],
+    darkMode: 'class',
+    theme: {
+        extend: {
+            colors: {
+                siakad: {
+                    50: '#eff6ff',
+                    100: '#dbeafe',
+                    500: '#3b82f6',
+                    600: '#2563eb',
+                    700: '#1d4ed8',
+                    800: '#1e40af',
+                    900: '#1e3a8a',
+                },
+            },
+        },
+    },
+    plugins: [
+        require('@tailwindcss/forms'),
+    ],
+};
+```
+
+### Alpine.js Patterns
+
+SIAKAD uses Alpine.js for client-side interactivity without a full SPA framework.
+
+#### Sidebar Toggle
+
+```html
+<div x-data="{ sidebarOpen: false }" class="flex h-screen">
+    <!-- Mobile sidebar overlay -->
+    <div x-show="sidebarOpen"
+         x-transition:enter="transition-opacity ease-linear duration-300"
+         x-transition:leave="transition-opacity ease-linear duration-300"
+         @click="sidebarOpen = false"
+         class="fixed inset-0 bg-gray-600/75 z-40 lg:hidden">
+    </div>
+
+    <!-- Sidebar -->
+    <aside :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full'"
+           class="fixed lg:static lg:translate-x-0 z-50 w-64 transition-transform">
+        {{-- navigation items --}}
+    </aside>
+
+    <!-- Main content -->
+    <main class="flex-1 overflow-y-auto">
+        <button @click="sidebarOpen = !sidebarOpen" class="lg:hidden">
+            {{-- hamburger icon --}}
+        </button>
+        {{ $slot }}
+    </main>
+</div>
+```
+
+#### Dark Mode Toggle
+
+```html
+<div x-data="{
+    darkMode: localStorage.getItem('darkMode') === 'true',
+    toggle() {
+        this.darkMode = !this.darkMode;
+        localStorage.setItem('darkMode', this.darkMode);
+        document.documentElement.classList.toggle('dark', this.darkMode);
+    }
+}" x-init="document.documentElement.classList.toggle('dark', darkMode)">
+    <button @click="toggle()">
+        <span x-show="!darkMode">🌙</span>
+        <span x-show="darkMode">☀️</span>
+    </button>
+</div>
+```
+
+#### Dropdown Menu
+
+```html
+<div x-data="{ open: false }" class="relative">
+    <button @click="open = !open">Menu</button>
+    <div x-show="open"
+         @click.away="open = false"
+         x-transition
+         class="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg">
+        {{-- dropdown items --}}
+    </div>
+</div>
+```
+
+#### Confirm Delete Modal
+
+```html
+<div x-data="{ showModal: false, deleteUrl: '' }">
+    <button @click="showModal = true; deleteUrl = '{{ route('admin.mahasiswa.destroy', $m->id) }}'">
+        Hapus
+    </button>
+
+    <div x-show="showModal" x-transition class="fixed inset-0 z-50 flex items-center justify-center">
+        <div class="bg-white rounded-xl p-6 max-w-sm">
+            <p>Yakin ingin menghapus data ini?</p>
+            <form :action="deleteUrl" method="POST">
+                @csrf
+                @method('DELETE')
+                <button type="submit" class="btn-danger">Hapus</button>
+                <button type="button" @click="showModal = false">Batal</button>
+            </form>
+        </div>
+    </div>
+</div>
+```
+
+### Blade Components (13 total)
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| `x-app-layout` | `layouts/app.blade.php` | Main authenticated layout |
+| `x-guest-layout` | `layouts/guest.blade.php` | Login/register layout |
+| `x-nav-link` | `components/nav-link.blade.php` | Sidebar navigation link |
+| `x-dropdown` | `components/dropdown.blade.php` | Dropdown container |
+| `x-dropdown-link` | `components/dropdown-link.blade.php` | Dropdown item |
+| `x-text-input` | `components/text-input.blade.php` | Form text input |
+| `x-input-label` | `components/input-label.blade.php` | Form label |
+| `x-input-error` | `components/input-error.blade.php` | Validation error display |
+| `x-primary-button` | `components/primary-button.blade.php` | Primary action button |
+| `x-danger-button` | `components/danger-button.blade.php` | Destructive action button |
+| `x-secondary-button` | `components/secondary-button.blade.php` | Secondary action button |
+| `x-modal` | `components/modal.blade.php` | Modal dialog |
+| `x-responsive-nav-link` | `components/responsive-nav-link.blade.php` | Mobile nav link |
+
+### Vite Configuration
+
+```js
+// vite.config.js
+import { defineConfig } from 'vite';
+import laravel from 'laravel-vite-plugin';
+
+export default defineConfig({
+    plugins: [
+        laravel({
+            input: [
+                'resources/css/app.css',
+                'resources/js/app.js',
+            ],
+            refresh: true,
+        }),
+    ],
+});
+```
+
+### Alpine.js Bootstrap
+
+```js
+// resources/js/app.js
+import './bootstrap';
+import Alpine from 'alpinejs';
+
+window.Alpine = Alpine;
+Alpine.start();
+```
+
+### Chart.js (CDN)
+
+Chart.js is loaded via CDN in views that display statistics (admin dashboard, student transcript):
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+```
+
+---
+
+## 9.13 Phase 12 — Testing
+
+### Pest Configuration
+
+```php
+// tests/Pest.php
+pest()->extend(Tests\TestCase::class)
+    ->use(Illuminate\Foundation\Testing\RefreshDatabase::class)
+    ->in('Feature');
+
+expect()->extend('toBeOne', function () {
+    return $this->toBe(1);
+});
+```
+
+All Feature tests automatically use `RefreshDatabase`, so each test starts with a clean database.
+
+### Test Directory Structure
+
+```
+tests/
+├── Pest.php                    # Pest configuration
+├── TestCase.php                # Base test case
+├── Unit/
+│   └── ExampleTest.php
+└── Feature/
+    ├── Auth/
+    │   ├── AuthenticationTest.php
+    │   ├── RegistrationTest.php
+    │   ├── PasswordUpdateTest.php
+    │   ├── PasswordResetTest.php
+    │   ├── PasswordConfirmationTest.php
+    │   └── EmailVerificationTest.php
+    ├── Admin/
+    │   └── AdminCrudTest.php
+    ├── Dosen/
+    │   └── DosenFlowTest.php
+    ├── Mahasiswa/
+    │   └── MahasiswaFlowTest.php
+    ├── Krs/
+    │   └── KrsFlowTest.php
+    ├── Penilaian/
+    │   └── PenilaianFlowTest.php
+    ├── AcademicAdvisor/
+    │   └── AcademicAdvisorTest.php
+    ├── HealthAndAuthTest.php
+    ├── ProfileTest.php
+    └── ExampleTest.php
+```
+
+### Example Test: KRS Flow
+
+```php
+<?php
+
+use App\Models\Kelas;
+use App\Models\Krs;
+use App\Models\KrsDetail;
+use App\Models\Mahasiswa;
+use App\Models\MataKuliah;
+use App\Models\Prodi;
+use App\Models\TahunAkademik;
+use App\Models\User;
+
+beforeEach(function () {
+    TahunAkademik::factory()->create(['is_active' => true]);
+});
+
+test('mahasiswa can view krs page', function () {
+    $user = User::factory()->create(['role' => 'mahasiswa']);
+    $prodi = Prodi::factory()->create();
+    Mahasiswa::factory()->create([
+        'user_id' => $user->id,
+        'prodi_id' => $prodi->id,
+    ]);
+
+    $response = $this->actingAs($user)->get(route('mahasiswa.krs.index'));
+
+    $response->assertStatus(200);
+});
+
+test('mahasiswa cannot access admin routes', function () {
+    $user = User::factory()->create(['role' => 'mahasiswa']);
+    $prodi = Prodi::factory()->create();
+    Mahasiswa::factory()->create([
+        'user_id' => $user->id,
+        'prodi_id' => $prodi->id,
+    ]);
+
+    $response = $this->actingAs($user)->get(route('admin.dashboard'));
+
+    $response->assertStatus(403);
+});
+
+test('unauthenticated user is redirected to login', function () {
+    $response = $this->get(route('mahasiswa.krs.index'));
+
+    $response->assertRedirect(route('login'));
+});
+```
+
+### Running Tests
+
+```bash
+# Run all tests
+php artisan test --compact
+
+# Run specific test file
+php artisan test --compact tests/Feature/Krs/KrsFlowTest.php
+
+# Run specific test by name
+php artisan test --compact --filter="mahasiswa can view krs page"
+
+# Run with coverage
+php artisan test --coverage
+```
+
+### Writing New Tests
+
+```bash
+# Create a feature test
+php artisan make:test --pest Admin/MahasiswaCrudTest --no-interaction
+
+# Create a unit test
+php artisan make:test --pest --unit Services/KrsServiceTest --no-interaction
+```
+
+---
+
+## 9.14 Phase 13 — Build and Verify
+
+### Build Frontend Assets
+
+```bash
+bun run build
+```
+
+### Run Migration + Seed
+
+```bash
+php artisan migrate:fresh --seed --no-interaction
+```
+
+### Verify Application
+
+```bash
+# Check routes
+php artisan route:list --compact
+
+# Check config
+php artisan config:show siakad
+
+# Run tests
+php artisan test --compact
+
+# Code style check
+vendor/bin/pint --dirty --format agent
+```
+
+### Start Development Server
+
+Using the `composer run dev` script:
+
+```bash
+composer run dev
+```
+
+This runs concurrently:
+- `php artisan serve` (Laravel dev server)
+- `php artisan queue:listen` (Queue worker)
+- `php artisan pail` (Log tail)
+- `bun run dev` (Vite dev server)
+
+---
+
+## 9.15 Deployment Checklist
+
+### Pre-Deployment
+
+| # | Task | Command / Action |
+|---|------|-----------------|
+| 1 | Set `APP_ENV=production` in `.env` | Manual |
+| 2 | Set `APP_DEBUG=false` | Manual |
+| 3 | Generate application key | `php artisan key:generate` |
+| 4 | Configure production database | Set `DB_*` vars in `.env` |
+| 5 | Run migrations | `php artisan migrate --force` |
+| 6 | Seed roles and permissions | `php artisan db:seed --class=RolePermissionSeeder --force` |
+| 7 | Build frontend assets | `bun run build` |
+
+### Performance
+
+| # | Task | Command |
+|---|------|---------|
+| 1 | Cache config | `php artisan config:cache` |
+| 2 | Cache routes | `php artisan route:cache` |
+| 3 | Cache views | `php artisan view:cache` |
+| 4 | Composer autoloader | `composer install --optimize-autoloader --no-dev` |
+
+### Security
+
+| # | Task | Notes |
+|---|------|-------|
+| 1 | Set HTTPS | Configure web server SSL, set `APP_URL` to `https://` |
+| 2 | Session config | Set `SESSION_DRIVER=database`, `SESSION_SECURE_COOKIE=true` |
+| 3 | Rate limiters | Defined in `bootstrap/app.php` — active by default |
+| 4 | Security headers | `SecurityHeadersMiddleware` appended globally |
+| 5 | CSRF protection | Included by default in Laravel |
+
+### Post-Deployment Verification
+
+```bash
+# Health check
+curl -s https://your-domain.com/up
+
+# Verify login
+# Navigate to https://your-domain.com/login
+
+# Check database connectivity
+php artisan tinker --execute="DB::connection()->getPdo(); echo 'OK';"
+
+# Verify permissions are seeded
+php artisan tinker --execute="echo Spatie\Permission\Models\Role::count() . ' roles';"
+```
+
+---
+
+## 9.16 Complete Rebuild — Quick Reference
+
+For an uninterrupted rebuild from zero to running application:
+
+```bash
+# 1. Project
+composer create-project laravel/laravel siakad
+cd siakad
+
+# 2. Backend dependencies
+composer require laravel/breeze --dev
+php artisan breeze:install blade --no-interaction
+composer require spatie/laravel-permission
+php artisan vendor:publish --provider="Spatie\Permission\PermissionServiceProvider" --no-interaction
+composer require pestphp/pest --dev
+composer require pestphp/pest-plugin-laravel --dev
+php artisan pest:install --no-interaction
+composer require laravel/pint --dev
+
+# 3. Frontend dependencies
+bun install
+
+# 4. Database (after creating all migrations and models)
+php artisan migrate:fresh --seed --no-interaction
+
+# 5. Build and verify
+bun run build
+php artisan test --compact
+vendor/bin/pint --dirty --format agent
+
+# 6. Start
+composer run dev
+```
+
+The total file count for a complete rebuild: approximately 38 migrations, 26 models, 51 controllers, 13 services, 5 middleware classes, 2 custom exceptions, 2 config files, 2 seeders, 6 factories, and ~80 Blade view files.

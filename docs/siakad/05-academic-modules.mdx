@@ -1,0 +1,1427 @@
+# Chapter 5: Academic Modules — Complete Business Logic Reference
+
+This chapter documents every business module in SIAKAD, covering controllers, service interactions, data flow, validation rules, status lifecycles, and multi-role access patterns. Modules are grouped into five functional categories:
+
+| Category | Modules |
+|---|---|
+| **Administrative** | Dashboard, Mahasiswa Mgmt, Dosen Mgmt, User Mgmt, Master Data |
+| **Academic Core** | Kelas, Jadwal Kuliah, KRS, KHS, Transkrip, Export |
+| **Assessment** | Penilaian (Grading), Presensi (Attendance) |
+| **Supervision** | Skripsi, Kerja Praktek, LMS |
+| **Supporting** | AI Academic Advisor, Notifications, Health Check |
+
+---
+
+## Multi-Role Access Matrix
+
+Before diving into each module, here is the access matrix showing which roles interact with which modules:
+
+| Module | Superadmin | Admin Fakultas | Dosen | Mahasiswa |
+|---|:---:|:---:|:---:|:---:|
+| Admin Dashboard | — | ✓ | — | — |
+| Mahasiswa Mgmt | — | ✓ | — | — |
+| Dosen Mgmt | — | ✓ | — | — |
+| User Mgmt | ✓ | — | — | — |
+| Fakultas (Master) | ✓ (CUD) | ✓ (R) | — | — |
+| Prodi (Master) | — | ✓ | — | — |
+| MataKuliah (Master) | — | ✓ | — | — |
+| TahunAkademik (Master) | — | ✓ | — | — |
+| Ruangan (Master) | — | ✓ | — | — |
+| Kelas Mgmt | — | ✓ | — | — |
+| Jadwal Kuliah | — | ✓ | — | — |
+| KRS (Plan) | — | — | — | ✓ |
+| KRS (Approve) | — | — | ✓ (PA) | — |
+| Penilaian | — | — | ✓ | — |
+| Presensi (Record) | — | — | ✓ | — |
+| Presensi (View) | — | — | — | ✓ |
+| LMS (Admin) | — | ✓ | — | — |
+| LMS (Teach) | — | — | ✓ | — |
+| LMS (Learn) | — | — | — | ✓ |
+| Skripsi (Admin) | — | ✓ | — | — |
+| Skripsi (Supervise) | — | — | ✓ | — |
+| Skripsi (Submit) | — | — | — | ✓ |
+| Kerja Praktek (Admin) | — | ✓ | — | — |
+| Kerja Praktek (Supervise) | — | — | ✓ | — |
+| Kerja Praktek (Submit) | — | — | — | ✓ |
+| KHS | — | — | — | ✓ |
+| Transkrip | — | — | — | ✓ |
+| Export | — | — | — | ✓ |
+| AI Advisor | — | — | — | ✓ |
+| Notifications | — | — | — | ✓ |
+| Health Check | (public) | (public) | (public) | (public) |
+
+**Key:** ✓ = full access, R = read-only, CUD = create/update/delete, PA = pembimbing akademik role
+
+---
+
+## 5.1 Administrative Modules
+
+### 5.1.1 Admin Dashboard
+
+**Purpose:** Provides a faculty-scoped statistical overview of academic entities for admin_fakultas users.
+
+**Controller:** `Admin\DashboardController@index`
+
+**Data Flow:**
+
+```
+┌──────────────────┐
+│  Admin User       │
+│  (admin_fakultas) │
+└────────┬─────────┘
+         │ GET /admin/dashboard
+         ▼
+┌────────────────────────────┐
+│ FakultasScopeMiddleware    │
+│ Injects $fakultasId into   │
+│ request from admin profile │
+└────────┬───────────────────┘
+         ▼
+┌────────────────────────────┐
+│ DashboardController@index  │
+├────────────────────────────┤
+│ Query: Mahasiswa count     │
+│   WHERE prodi.fakultas_id  │
+│ Query: Dosen count         │
+│   WHERE fakultas_id        │
+│ Query: Kelas count         │
+│   WHERE mata_kuliah →      │
+│     prodi → fakultas       │
+│ Query: MataKuliah count    │
+│   WHERE prodi.fakultas_id  │
+└────────┬───────────────────┘
+         ▼
+┌────────────────────────────┐
+│ Blade View + Chart.js      │
+│ (CDN-loaded per page)      │
+│ Renders 4 stat cards +     │
+│ bar/pie charts             │
+└────────────────────────────┘
+```
+
+**Business Rules:**
+- All counts are scoped to the admin's faculty via `FakultasScopeMiddleware`.
+- Chart.js is loaded from CDN on the dashboard page only (not globally bundled).
+- No caching layer on dashboard queries — they reflect real-time counts.
+
+---
+
+### 5.1.2 Mahasiswa Management
+
+**Purpose:** Full lifecycle management of student records within a faculty, including bulk export.
+
+**Controller:** `Admin\MahasiswaController`
+
+**Routes & Actions:**
+
+| Method | URI Pattern | Action | Description |
+|---|---|---|---|
+| GET | `/admin/mahasiswa` | index | Paginated list with search + filter |
+| GET | `/admin/mahasiswa/create` | create | New student form |
+| POST | `/admin/mahasiswa` | store | Create student record |
+| GET | `/admin/mahasiswa/{id}/edit` | edit | Edit student form |
+| PUT | `/admin/mahasiswa/{id}` | update | Update student record |
+| DELETE | `/admin/mahasiswa/{id}` | destroy | Delete student record |
+| GET | `/admin/mahasiswa/export` | export | CSV download |
+
+**Index Query Logic:**
+
+```php
+Mahasiswa::query()
+    ->whereHas('prodi', fn($q) => $q->where('fakultas_id', $fakultasId))
+    ->when($search, fn($q) => $q->where('nama', 'like', "%{$search}%")
+                                 ->orWhere('nim', 'like', "%{$search}%"))
+    ->when($prodiId, fn($q) => $q->where('prodi_id', $prodiId))
+    ->orderBy('nama')
+    ->paginate(15);
+```
+
+**Store Validation Rules:**
+
+| Field | Rules |
+|---|---|
+| `nim` | required, string, unique:mahasiswas |
+| `nama` | required, string, max:255 |
+| `email` | required, email, unique:users |
+| `prodi_id` | required, exists:prodis,id |
+| `semester` | required, integer, min:1 |
+| `status` | required, in:aktif,cuti,lulus,drop_out |
+
+**Creation Data Flow:**
+
+```
+┌──────────────┐
+│ Admin submits │
+│ student form  │
+└──────┬───────┘
+       │ POST /admin/mahasiswa
+       ▼
+┌──────────────────────┐
+│ Validate input       │
+│ (FormRequest)        │
+└──────┬───────────────┘
+       ▼
+┌──────────────────────┐
+│ UserService::        │
+│   createUser()       │
+│                      │
+│ DB::transaction {    │
+│   1. Create User     │
+│      (role=mahasiswa) │
+│   2. Create Mahasiswa│
+│      record linked   │
+│      to User         │
+│ }                    │
+└──────┬───────────────┘
+       ▼
+┌──────────────────────┐
+│ Redirect to index    │
+│ with success flash   │
+└──────────────────────┘
+```
+
+**Export:** Generates a CSV file containing all mahasiswa records within the admin's faculty scope. All columns from the mahasiswa table are included.
+
+---
+
+### 5.1.3 Dosen Management
+
+**Purpose:** Full lifecycle management of lecturer records within a faculty.
+
+**Controller:** `Admin\DosenController`
+
+Follows the identical CRUD + export pattern as Mahasiswa Management (Section 5.1.2), substituting:
+- Model: `Dosen` instead of `Mahasiswa`
+- Unique field: `nidn` instead of `nim`
+- Faculty scope: `where('fakultas_id', $fakultasId)` directly on the Dosen model (dosen belongs directly to a faculty, not through prodi)
+- UserService creates `User` with `role=dosen` + linked `Dosen` record in a transaction
+
+---
+
+### 5.1.4 User Management (Superadmin Only)
+
+**Purpose:** Cross-faculty user creation with polymorphic profile generation. Restricted to the superadmin role.
+
+**Controller:** `Admin\UserController`
+
+**Access Control:** Only users with `role=superadmin` can access this module. Other admin roles are blocked.
+
+**Polymorphic User Creation via UserService:**
+
+```
+┌─────────────────────┐
+│ Superadmin submits   │
+│ new user form        │
+│ (name, email, role)  │
+└──────────┬──────────┘
+           ▼
+┌─────────────────────────────────────┐
+│ UserService::createUser($data)      │
+│                                     │
+│ DB::transaction {                   │
+│   $user = User::create(...)        │
+│                                     │
+│   switch ($data['role']) {          │
+│     case 'dosen':                   │
+│       Dosen::create([               │
+│         'user_id' => $user->id,     │
+│         ...dosen-specific fields    │
+│       ]);                           │
+│       break;                        │
+│                                     │
+│     case 'mahasiswa':               │
+│       Mahasiswa::create([           │
+│         'user_id' => $user->id,     │
+│         ...mahasiswa-specific fields│
+│       ]);                           │
+│       break;                        │
+│                                     │
+│     case 'admin_fakultas':          │
+│       AdminFakultas::create([       │
+│         'user_id' => $user->id,     │
+│         'fakultas_id' => ...        │
+│       ]);                           │
+│       break;                        │
+│   }                                 │
+│ }                                   │
+└─────────────────────────────────────┘
+```
+
+The DB transaction guarantees that a `User` record is never created without its corresponding profile record. If profile creation fails, the entire operation rolls back.
+
+---
+
+### 5.1.5 Master Data Modules
+
+Five sub-modules manage reference data that other modules depend on.
+
+#### Fakultas (Faculty)
+
+**Controller:** `Admin\FakultasController`
+
+| Operation | Superadmin | Admin Fakultas |
+|---|:---:|:---:|
+| List / View | ✓ | ✓ (own faculty only) |
+| Create | ✓ | ✗ |
+| Update | ✓ | ✗ |
+| Delete | ✓ | ✗ |
+
+Fields: `nama`, `kode` (unique code), `dekan` (dean name).
+
+#### Prodi (Study Program)
+
+**Controller:** `Admin\ProdiController`
+
+Faculty-scoped: admin_fakultas can only manage prodi within their own faculty.
+
+Fields: `nama`, `kode`, `jenjang` (degree level: S1/S2/S3/D3/D4), `fakultas_id`, `akreditasi`.
+
+#### Mata Kuliah (Course)
+
+**Controller:** `Admin\MataKuliahController`
+
+Scoped through: `prodi → fakultas`. An admin_fakultas sees only courses belonging to prodi within their faculty.
+
+Fields: `kode`, `nama`, `sks` (credit hours), `semester` (recommended semester), `prodi_id`, `deskripsi`.
+
+#### Tahun Akademik (Academic Year)
+
+**Controller:** `Admin\TahunAkademikController`
+
+**Critical Rule — Single Active Year:**
+
+```
+┌────────────────────────────────────────────┐
+│ When toggling a TahunAkademik to active:   │
+│                                            │
+│ 1. Set ALL TahunAkademik to is_active=false│
+│ 2. Set the selected one to is_active=true  │
+│                                            │
+│ Only ONE TahunAkademik can be active at    │
+│ any time. This active year controls:       │
+│ - Which kelas are shown in KRS            │
+│ - Which semester penilaian targets         │
+│ - Which jadwal is currently displayed      │
+│ - KHS semester context                     │
+└────────────────────────────────────────────┘
+```
+
+Fields: `nama` (e.g., "2024/2025 Ganjil"), `semester` (ganjil/genap), `tahun_mulai`, `tahun_selesai`, `is_active`.
+
+#### Ruangan (Room)
+
+**Controller:** `Admin\RuanganController`
+
+Fields: `nama` (e.g., "R-301"), `gedung` (building name), `kapasitas` (seat count), `fasilitas` (text description of equipment: projector, AC, etc.).
+
+Used by: Kelas and Jadwal Kuliah modules for room assignment and conflict detection.
+
+---
+
+## 5.2 Academic Core Modules
+
+### 5.2.1 Kelas (Class Section) Management
+
+**Purpose:** Creates class sections that bind a course to a lecturer, room, schedule, and academic year.
+
+**Controller:** `Admin\KelasController`
+
+**Entity Relationships:**
+
+```
+┌──────────────┐     ┌─────────────┐     ┌──────────────┐
+│ MataKuliah   │────▶│   Kelas     │◀────│    Dosen     │
+│ (course)     │     │ (section)   │     │ (lecturer)   │
+└──────────────┘     └──────┬──────┘     └──────────────┘
+                            │
+              ┌─────────────┼─────────────┐
+              ▼             ▼             ▼
+     ┌──────────────┐ ┌──────────┐ ┌──────────────┐
+     │ TahunAkademik│ │ Ruangan  │ │ JadwalKuliah │
+     │ (acad. year) │ │ (room)   │ │ (schedule)   │
+     └──────────────┘ └──────────┘ └──────────────┘
+```
+
+**Store Data Flow:**
+
+When an admin creates a new kelas, the controller:
+
+1. Validates all input fields (mata_kuliah_id, dosen_id, tahun_akademik_id, hari, jam_mulai, jam_selesai, kapasitas, ruangan_id)
+2. Creates the `Kelas` record
+3. Creates a corresponding `JadwalKuliah` record with the same schedule data
+
+**Faculty Scope Chain:** `Kelas → MataKuliah → Prodi → Fakultas`
+
+The admin only sees kelas for courses belonging to prodi within their faculty.
+
+---
+
+### 5.2.2 Jadwal Kuliah (Class Schedule)
+
+**Purpose:** Manages time-slot assignments for class sections with conflict detection to prevent double-booking.
+
+**Controller:** `Admin\JadwalKuliahController`
+
+**Service:** `JadwalService`
+
+**Conflict Detection — Two Types:**
+
+```
+┌─────────────────────────────────────────────────────┐
+│                  JadwalService                       │
+│                                                      │
+│  checkDosenConflict(                                 │
+│    $dosenId, $hari, $jamMulai, $jamSelesai,          │
+│    $excludeId = null                                 │
+│  )                                                   │
+│  ─────────────────────────────────────────────       │
+│  Returns true if the dosen already has a class       │
+│  on the same day with overlapping time.              │
+│                                                      │
+│  Overlap logic:                                      │
+│    existing.jam_mulai < $jamSelesai                   │
+│    AND existing.jam_selesai > $jamMulai               │
+│                                                      │
+│  $excludeId skips the current record during edits.   │
+│                                                      │
+│  ─────────────────────────────────────────────       │
+│                                                      │
+│  checkRuanganConflict(                               │
+│    $ruanganId, $hari, $jamMulai, $jamSelesai,        │
+│    $excludeId = null                                 │
+│  )                                                   │
+│  ─────────────────────────────────────────────       │
+│  Same overlap logic, applied to room instead         │
+│  of dosen.                                           │
+│                                                      │
+│  ─────────────────────────────────────────────       │
+│                                                      │
+│  getJadwalMahasiswa($mahasiswaId, $tahunAkademikId)  │
+│  → Returns all schedule entries for a student's      │
+│    enrolled kelas in the given academic year.         │
+│                                                      │
+│  getJadwalDosen($dosenId, $tahunAkademikId)          │
+│  → Returns all schedule entries for a dosen's        │
+│    assigned kelas in the given academic year.         │
+└─────────────────────────────────────────────────────┘
+```
+
+**Time Overlap Detection (visual):**
+
+```
+Case 1: No conflict
+  Existing:  |████████|
+  New:                   |████████|
+
+Case 2: Conflict — partial overlap
+  Existing:  |████████|
+  New:            |████████|
+
+Case 3: Conflict — new inside existing
+  Existing:  |██████████████|
+  New:          |████████|
+
+Case 4: Conflict — existing inside new
+  Existing:      |████|
+  New:        |██████████|
+```
+
+All four cases are caught by the condition: `existing.start < new.end AND existing.end > new.start`.
+
+---
+
+### 5.2.3 KRS (Kartu Rencana Studi / Study Plan Card)
+
+**Purpose:** Students build their semester course load by selecting class sections. Academic advisors (PA dosen) review and approve/reject plans.
+
+**Controllers:**
+- `Mahasiswa\KrsController` — student-facing (build, submit)
+- `Dosen\BimbinganController` — advisor-facing (approve, reject)
+
+**Service:** `KrsService`
+
+**Rate Limit:** 10 requests per minute
+
+**Full KRS Data Flow:**
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                        KRS LIFECYCLE                              │
+│                                                                   │
+│  MAHASISWA SIDE                          DOSEN (PA) SIDE          │
+│  ─────────────────                       ──────────────────       │
+│                                                                   │
+│  ┌─────────────┐                                                  │
+│  │ View KRS    │  GET /mahasiswa/krs                              │
+│  │ index page  │──────────────────────┐                           │
+│  └─────────────┘                      │                           │
+│        │                              ▼                           │
+│        │                    ┌──────────────────┐                  │
+│        │                    │ Show current KRS │                  │
+│        │                    │ + available kelas│                  │
+│        │                    │ for active tahun │                  │
+│        │                    │ akademik         │                  │
+│        │                    └──────────────────┘                  │
+│        ▼                                                          │
+│  ┌─────────────┐                                                  │
+│  │ Add kelas   │  POST /mahasiswa/krs (addKelas)                  │
+│  │ to draft    │─────────────────────────┐                        │
+│  └─────────────┘                         ▼                        │
+│        │                    ┌───────────────────────┐             │
+│        │                    │ KrsService validates: │             │
+│        │                    │ 1. KRS status = draft │             │
+│        │                    │ 2. Kelas has capacity │             │
+│        │                    │ 3. No duplicate MK    │             │
+│        │                    │ 4. SKS ≤ max limit    │             │
+│        │                    └───────────────────────┘             │
+│        │                              │                           │
+│        │                    ┌─────────┴─────────┐                 │
+│        │                    ▼                   ▼                 │
+│        │              ┌──────────┐        ┌──────────┐           │
+│        │              │ SUCCESS  │        │  FAIL    │           │
+│        │              │ Attach   │        │ Return   │           │
+│        │              │ kelas to │        │ error    │           │
+│        │              │ KRS      │        │ message  │           │
+│        │              └──────────┘        └──────────┘           │
+│        ▼                                                          │
+│  ┌─────────────┐                                                  │
+│  │ Remove kelas│  DELETE /mahasiswa/krs/{kelas}                   │
+│  │ from draft  │  (only if KRS status = draft)                    │
+│  └─────────────┘                                                  │
+│        │                                                          │
+│        ▼                                                          │
+│  ┌─────────────┐                                                  │
+│  │ Submit KRS  │  POST /mahasiswa/krs/submit                      │
+│  │ draft→      │────────┐                                         │
+│  │   pending   │        │                                         │
+│  └─────────────┘        ▼                                         │
+│                  ┌──────────────┐    ┌───────────────────┐        │
+│                  │ KRS status = │───▶│ PA Dosen reviews  │        │
+│                  │ 'pending'    │    │ student's KRS     │        │
+│                  └──────────────┘    │ GET /dosen/       │        │
+│                                      │   bimbingan       │        │
+│                                      └────────┬──────────┘        │
+│                                               │                   │
+│                                     ┌─────────┴─────────┐        │
+│                                     ▼                   ▼        │
+│                               ┌──────────┐        ┌──────────┐   │
+│                               │ APPROVE  │        │ REJECT   │   │
+│                               │ status=  │        │ status=  │   │
+│                               │ approved │        │ rejected │   │
+│                               │ set      │        │ set      │   │
+│                               │ approved_│        │ approved_│   │
+│                               │ by/at    │        │ by/at    │   │
+│                               └──────────┘        └──────────┘   │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+**KRS Status Lifecycle:**
+
+```
+    ┌───────┐     submit      ┌─────────┐     approve     ┌──────────┐
+    │ draft │────────────────▶│ pending │────────────────▶│ approved │
+    └───────┘                 └─────────┘                  └──────────┘
+                                   │
+                                   │ reject
+                                   ▼
+                              ┌──────────┐
+                              │ rejected │
+                              └──────────┘
+```
+
+**KRS Validation Rules (KrsService):**
+
+| # | Rule | Check | Error Condition |
+|---|---|---|---|
+| 1 | KRS must be draft | `$krs->status !== 'draft'` | Student tries to modify a submitted/approved KRS |
+| 2 | Capacity check | `$kelas->jumlah_mahasiswa >= $kelas->kapasitas` | Class section is full |
+| 3 | No duplicate course | KRS already contains a kelas for the same `mata_kuliah_id` | Student picks two sections of the same course |
+| 4 | SKS limit | Total SKS in KRS would exceed maximum | Exceeds credit limit for student's IPS tier |
+
+**SKS Limit by IPS (Indeks Prestasi Semester):**
+
+| IPS Range | Max SKS Allowed |
+|---|---|
+| ≥ 3.51 | 24 |
+| 3.00 – 3.50 | 22 |
+| 2.50 – 2.99 | 20 |
+| 2.00 – 2.49 | 18 |
+| < 2.00 | 14 |
+
+First-semester students (no prior IPS) default to a maximum of 20 SKS.
+
+---
+
+### 5.2.4 KHS (Kartu Hasil Studi / Semester Grade Report)
+
+**Purpose:** Displays a student's grades for a single semester with the computed IPS.
+
+**Controller:** `Mahasiswa\KhsController`
+
+**Service:** `AkademikCalculationService`
+
+**IPS Calculation:**
+
+```
+IPS = Σ(bobot × sks) / Σ(sks)
+
+Where:
+  bobot = numeric weight of the letter grade (see grade table in §5.3.1)
+  sks   = credit hours for the course
+
+Example:
+  Algoritma (3 SKS, grade A = 4.00):   3 × 4.00 = 12.00
+  Basis Data (3 SKS, grade B+ = 3.50): 3 × 3.50 = 10.50
+  Kalkulus  (2 SKS, grade B = 3.00):   2 × 3.00 =  6.00
+
+  IPS = (12.00 + 10.50 + 6.00) / (3 + 3 + 2) = 28.50 / 8 = 3.5625
+```
+
+**Requires:** An active `TahunAkademik` to determine which semester to display.
+
+---
+
+### 5.2.5 Transkrip (Academic Transcript)
+
+**Purpose:** Displays the cumulative academic record across all semesters with IPK (cumulative GPA).
+
+**Controller:** `Mahasiswa\TranskripController`
+
+**Service:** `AkademikCalculationService`
+
+**IPK Calculation:**
+
+```
+IPK = Σ(bobot × sks) across ALL semesters / Σ(sks) across ALL semesters
+```
+
+**Additional Computed Data:**
+
+| Metric | Description |
+|---|---|
+| Total SKS Earned | Sum of SKS for all courses with passing grade (≥ D) |
+| Grade Distribution | Count of each letter grade (e.g., A: 15, B+: 8, B: 12, ...) |
+| Course List | All courses ever taken, grouped by semester, with grade |
+
+---
+
+### 5.2.6 Export (Printable Documents)
+
+**Purpose:** Generates print-ready HTML views of KHS and Transkrip for official document printing.
+
+**Controller:** `Mahasiswa\ExportController`
+
+| Method | Output |
+|---|---|
+| `exportKhs` | Single-semester KHS in printable HTML |
+| `exportTranskrip` | Full transcript in printable HTML |
+
+Both methods:
+- Use dedicated Blade templates (separate from the regular UI views)
+- Include print-friendly CSS (no navigation, proper page breaks, institutional header)
+- Pull the same data as their regular view counterparts via `AkademikCalculationService`
+
+---
+
+## 5.3 Assessment Modules
+
+### 5.3.1 Penilaian (Grading)
+
+**Purpose:** Lecturers enter numeric grades for students in their class sections. The system auto-converts numeric grades to letter grades and GPA weight.
+
+**Controller:** `Dosen\PenilaianController`
+
+**Service:** `PenilaianService`
+
+**Rate Limit:** 20 requests per minute
+
+**Routes & Actions:**
+
+| Method | URI Pattern | Action | Description |
+|---|---|---|---|
+| GET | `/dosen/penilaian` | index | List dosen's kelas with student counts |
+| GET | `/dosen/penilaian/{kelas}` | show | All students in kelas with current grades |
+| PUT | `/dosen/penilaian/{kelas}/{mahasiswa}` | update | Set grade for one student |
+| PUT | `/dosen/penilaian/{kelas}/bulk` | bulkUpdate | Set grades for multiple students |
+
+**Grade Conversion Table:**
+
+```
+┌────────────┬──────────────┬─────────────┬───────┐
+│ Nilai Huruf│ Nilai Angka  │ Bobot (GPA) │ Status│
+│ (Letter)   │ (Numeric)    │ (Weight)    │       │
+├────────────┼──────────────┼─────────────┼───────┤
+│     A      │   85 – 100   │    4.00     │ Pass  │
+│     A-     │   80 – 84    │    3.75     │ Pass  │
+│     B+     │   75 – 79    │    3.50     │ Pass  │
+│     B      │   70 – 74    │    3.00     │ Pass  │
+│     C+     │   65 – 69    │    2.50     │ Pass  │
+│     C      │   60 – 64    │    2.00     │ Pass  │
+│     D      │   55 – 59    │    1.00     │ Pass* │
+│     E      │    0 – 54    │    0.00     │ Fail  │
+└────────────┴──────────────┴─────────────┴───────┘
+* D is technically passing but most programs require C minimum
+  for core courses.
+```
+
+**Grading Data Flow:**
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                    GRADING FLOW                               │
+│                                                               │
+│  ┌────────────┐                                               │
+│  │ Dosen opens │  GET /dosen/penilaian                        │
+│  │ grade page  │                                              │
+│  └──────┬─────┘                                               │
+│         ▼                                                     │
+│  ┌─────────────────────────────┐                              │
+│  │ List kelas for active       │                              │
+│  │ tahun_akademik where        │                              │
+│  │ kelas.dosen_id = $dosenId   │                              │
+│  │ + count enrolled students   │                              │
+│  └──────┬──────────────────────┘                              │
+│         │ Select a kelas                                      │
+│         ▼                                                     │
+│  ┌─────────────────────────────┐                              │
+│  │ Show student roster with    │                              │
+│  │ current nilai_angka,        │                              │
+│  │ nilai_huruf, bobot          │                              │
+│  └──────┬──────────────────────┘                              │
+│         │                                                     │
+│    ┌────┴─────────────┐                                       │
+│    ▼                  ▼                                       │
+│  ┌──────────┐   ┌──────────────┐                              │
+│  │ Single   │   │ Bulk Update  │                              │
+│  │ Update   │   │ (multiple    │                              │
+│  │ (one     │   │  students)   │                              │
+│  │ student) │   └──────┬───────┘                              │
+│  └────┬─────┘          │                                      │
+│       │                │                                      │
+│       ▼                ▼                                      │
+│  ┌─────────────────────────────────────┐                      │
+│  │ PenilaianService::setGrade()        │                      │
+│  │                                     │                      │
+│  │ Input:  nilai_angka (0-100)         │                      │
+│  │ Output: nilai_huruf (A to E)        │                      │
+│  │         bobot       (4.00 to 0.00)  │                      │
+│  │                                     │                      │
+│  │ Applies conversion table above      │                      │
+│  │ Saves all three fields to DB        │                      │
+│  └─────────────────────────────────────┘                      │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Business Rules:**
+- Only the dosen assigned to a kelas can grade students in that kelas.
+- Numeric grades must be integers between 0 and 100.
+- Letter grades and GPA weight are auto-computed — never manually entered.
+- Bulk update processes all students in a single request to minimize round-trips.
+
+---
+
+### 5.3.2 Presensi (Attendance)
+
+**Purpose:** Lecturers record per-meeting attendance. Students view their own attendance history and statistics.
+
+**Controllers:**
+- `Dosen\PresensiController` — recording
+- `Mahasiswa\PresensiController` — viewing
+
+**Service:** `PresensiService`
+
+**Dosen-Side Routes:**
+
+| Method | URI Pattern | Action | Description |
+|---|---|---|---|
+| GET | `/dosen/presensi/{kelas}` | index | List all pertemuan for a kelas |
+| GET | `/dosen/presensi/{kelas}/create` | create | Form to create new pertemuan |
+| POST | `/dosen/presensi/{kelas}` | storePertemuan | Save new pertemuan record |
+| GET | `/dosen/presensi/{kelas}/{pertemuan}` | inputPresensi | Attendance form for all students |
+| POST | `/dosen/presensi/{kelas}/{pertemuan}` | storePresensi | Save attendance records |
+
+**Pertemuan (Meeting) Record:**
+
+| Field | Description |
+|---|---|
+| `pertemuan_ke` | Meeting number (1, 2, 3, ...) |
+| `tanggal` | Date of the meeting |
+| `materi` | Topic/material covered |
+
+**Attendance Status Values:**
+
+| Status | Indonesian | English | Counts Toward Minimum? |
+|---|---|---|---|
+| `hadir` | Hadir | Present | ✓ Yes |
+| `sakit` | Sakit | Sick (with documentation) | ✓ Yes |
+| `izin` | Izin | Excused absence | ✓ Yes |
+| `alpa` | Alpa | Unexcused absence | ✗ No |
+
+**Attendance Calculation (PresensiService):**
+
+```
+Attendance % = (hadir + sakit + izin) / total_pertemuan × 100
+
+Example:
+  16 meetings total
+  hadir: 12, sakit: 1, izin: 1, alpa: 2
+
+  Attendance = (12 + 1 + 1) / 16 × 100 = 87.5%
+```
+
+**Thresholds (from `config/academic_rules.php`):**
+
+| Threshold | Value | Consequence |
+|---|---|---|
+| Warning | 80% | System displays warning to student |
+| Minimum | 75% | Below this, student may be barred from final exam |
+
+**Mahasiswa-Side View:**
+
+The student sees:
+
+```
+┌──────────────────────────────────────────────┐
+│ Presensi — Algoritma Pemrograman (Kelas A)   │
+├──────────────────────────────────────────────┤
+│ Hadir: 12  │ Sakit: 1  │ Izin: 1  │ Alpa: 2 │
+│ Persentase Kehadiran: 87.5%                  │
+├──────────────────────────────────────────────┤
+│ Pertemuan 1  │ 2024-09-02  │ Hadir           │
+│ Pertemuan 2  │ 2024-09-09  │ Hadir           │
+│ Pertemuan 3  │ 2024-09-16  │ Alpa            │
+│ ...                                          │
+└──────────────────────────────────────────────┘
+```
+
+---
+
+## 5.4 Supervision Modules
+
+### 5.4.1 Skripsi (Thesis)
+
+**Purpose:** Manages the full thesis lifecycle from proposal submission through final defense and completion.
+
+**Controllers:**
+- `Admin\SkripsiController` — administrative overview and status management
+- `Dosen\SkripsiController` — supervisor view, bimbingan management
+- `Mahasiswa\SkripsiController` — student submission and bimbingan interaction
+
+**Status Lifecycle (8 states):**
+
+```
+┌────────────┐     ┌───────────┐     ┌──────────────────┐     ┌────────────┐
+│ pengajuan  │────▶│ bimbingan │────▶│ seminar_proposal │────▶│ penelitian │
+│ (proposal) │     │ (guidance)│     │ (proposal exam)  │     │ (research) │
+└────────────┘     └───────────┘     └──────────────────┘     └─────┬──────┘
+                                                                     │
+                   ┌───────────┐     ┌──────────────────┐           │
+                   │  selesai  │◀────│     revisi       │           │
+                   │ (complete)│     │   (revision)     │           │
+                   └───────────┘     └────────┬─────────┘           │
+                                              │                     │
+                                     ┌────────┴─────────┐          │
+                                     │     sidang       │          │
+                                     │  (final defense) │          │
+                                     └────────┬─────────┘          │
+                                              │                     │
+                                     ┌────────┴─────────┐          │
+                                     │  seminar_hasil   │◀─────────┘
+                                     │ (results seminar)│
+                                     └──────────────────┘
+```
+
+**Transition Path:** `pengajuan → bimbingan → seminar_proposal → penelitian → seminar_hasil → sidang → revisi → selesai`
+
+**Mahasiswa Actions:**
+
+| Action | Method | Description |
+|---|---|---|
+| Submit proposal | `create/store` | Submits judul, deskripsi, selects pembimbing1 and pembimbing2 |
+| View status | `show` | Displays current status and bimbingan history |
+| Add bimbingan note | `storeBimbingan` | Submits progress notes with optional file upload |
+
+**Proposal Submission Fields:**
+
+| Field | Description |
+|---|---|
+| `judul` | Thesis title |
+| `deskripsi` | Thesis description / abstract |
+| `pembimbing1_id` | Primary supervisor (dosen) |
+| `pembimbing2_id` | Secondary supervisor (dosen) |
+
+**Dosen Actions:**
+- View list of supervised theses
+- Manage bimbingan sessions (view notes, track progress)
+
+**Admin Actions:**
+- Overview of all skripsi records with filtering by status
+- Transition skripsi between statuses (advancing through the lifecycle)
+
+---
+
+### 5.4.2 Kerja Praktek (Internship / Practical Work)
+
+**Purpose:** Tracks student internship placements from registration through completion, including daily logbook entries.
+
+**Controllers:**
+- `Admin\KerjaPraktekController` — overview and status management
+- `Dosen\KerjaPraktekController` — supervisor view, logbook review
+- `Mahasiswa\KerjaPraktekController` — registration and logbook submission
+
+**Status Lifecycle (4 states):**
+
+```
+┌────────────┐     ┌─────────────┐     ┌──────────┐
+│ pengajuan  │────▶│ berlangsung │────▶│ selesai  │
+│ (proposal) │     │ (ongoing)   │     │(complete)│
+└────────────┘     └─────────────┘     └──────────┘
+      │
+      │ (if rejected)
+      ▼
+┌──────────┐
+│  batal   │
+│(cancelled)│
+└──────────┘
+```
+
+**Mahasiswa Registration Fields:**
+
+| Field | Description |
+|---|---|
+| `judul` | Internship title / project name |
+| `perusahaan` | Company name |
+| `alamat` | Company address |
+| `tanggal_mulai` | Start date |
+| `tanggal_selesai` | End date |
+| `pembimbing_id` | Supervising dosen |
+
+**Logbook Entries:**
+
+Students submit daily logbook entries via `storeLogbook`:
+
+| Field | Description |
+|---|---|
+| `tanggal` | Entry date |
+| `kegiatan` | Activity description |
+| `catatan` | Notes / reflections |
+
+**Dosen View:** Supervisors see the list of internships they supervise and can review logbook entries submitted by their students.
+
+---
+
+### 5.4.3 LMS (Learning Management System)
+
+**Purpose:** In-app content delivery and assignment management for each class section. Three roles interact with the LMS.
+
+**Controllers:**
+
+| Role | Controller(s) | Capabilities |
+|---|---|---|
+| Admin | `Admin\LmsController` | Manage materi + tugas for any kelas |
+| Dosen | `Dosen\LmsController`, `Dosen\MateriController` | Manage materi + tugas for own kelas |
+| Mahasiswa | `Mahasiswa\LmsController`, `Mahasiswa\TugasController` | View materi, submit tugas |
+
+**LMS Entity Structure:**
+
+```
+┌───────────┐
+│   Kelas   │
+└─────┬─────┘
+      │
+      ├──────────────────┐
+      ▼                  ▼
+┌───────────┐     ┌────────────┐
+│  Materi   │     │   Tugas    │
+│(materials)│     │(assignments)│
+├───────────┤     ├────────────┤
+│ judul     │     │ judul      │
+│ tipe:     │     │ deskripsi  │
+│  dokumen  │     │ deadline   │
+│  video    │     │ bobot_nilai│
+│  link     │     │ (grade     │
+│ file_path │     │  weight)   │
+│ urutan    │     └──────┬─────┘
+│ (ordering)│            │
+└───────────┘            ▼
+                  ┌────────────────┐
+                  │ TugasSubmission│
+                  ├────────────────┤
+                  │ mahasiswa_id   │
+                  │ file_path      │
+                  │ catatan (notes)│
+                  │ nilai (grade)  │
+                  │ submitted_at   │
+                  └────────────────┘
+```
+
+**Dosen Workflow:**
+1. Create materi items with file uploads or links, set display ordering
+2. Create tugas with deadline and grade weight
+3. View student submissions
+4. Grade each submission
+
+**Mahasiswa Workflow:**
+1. Browse materi for enrolled kelas, download files
+2. View tugas assignments with deadlines
+3. Submit tugas (file upload + optional notes)
+4. View returned grades
+
+**Materi Types:**
+
+| Type | Description | Storage |
+|---|---|---|
+| `dokumen` | PDF, DOC, PPT files | Local file storage |
+| `video` | Video files or embeds | Local file storage |
+| `link` | External URL resource | Stored as text |
+
+---
+
+## 5.5 Supporting Modules
+
+### 5.5.1 AI Academic Advisor
+
+**Purpose:** An LLM-powered conversational advisor that answers student academic questions using real student data as context. Includes a guard system that validates responses against actual academic records.
+
+**Controller:** `Mahasiswa\AiAdvisorController`
+
+**Service Layer:** `AiAdvisorService` (orchestrator) → `AdvisorContextBuilder` + LLM API + Guards
+
+**Rate Limit:** 10 requests per minute
+
+**Full AI Advisor Data Flow:**
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                     AI ADVISOR REQUEST FLOW                              │
+│                                                                          │
+│  ┌──────────────────┐                                                    │
+│  │ Student sends    │                                                    │
+│  │ chat message     │                                                    │
+│  │ (Alpine.js UI)   │                                                    │
+│  └────────┬─────────┘                                                    │
+│           │ POST /mahasiswa/ai-advisor                                   │
+│           ▼                                                              │
+│  ┌──────────────────────────────────────┐                                │
+│  │ AiAdvisorService::handleMessage()   │                                │
+│  └────────┬─────────────────────────────┘                                │
+│           │                                                              │
+│           ▼                                                              │
+│  ┌──────────────────────────────────────┐                                │
+│  │ STEP 1: PRE-GUARDS                  │                                │
+│  │                                      │                                │
+│  │ outOfContext guard:                  │                                │
+│  │   Rejects non-academic questions    │                                │
+│  │   (e.g., "what's the weather?")     │                                │
+│  │                                      │                                │
+│  │ genericAssumptions guard:            │                                │
+│  │   Blocks vague input that would     │                                │
+│  │   produce assumption-based answers  │                                │
+│  │                                      │                                │
+│  │ If either guard triggers → return   │                                │
+│  │ rejection message immediately       │                                │
+│  └────────┬─────────────────────────────┘                                │
+│           │ (passed pre-guards)                                          │
+│           ▼                                                              │
+│  ┌──────────────────────────────────────┐                                │
+│  │ STEP 2: BUILD CONTEXT               │                                │
+│  │                                      │                                │
+│  │ AdvisorContextBuilder::build()      │                                │
+│  │                                      │                                │
+│  │ Gathers from database:              │                                │
+│  │ ├─ Academic summary (IPK, semester) │                                │
+│  │ ├─ Course statuses (passed/failed)  │                                │
+│  │ ├─ Curriculum requirements          │                                │
+│  │ ├─ Current schedule                 │                                │
+│  │ └─ Attendance records               │                                │
+│  │                                      │                                │
+│  │ Formats into structured prompt      │                                │
+│  └────────┬─────────────────────────────┘                                │
+│           │                                                              │
+│           ▼                                                              │
+│  ┌──────────────────────────────────────┐                                │
+│  │ STEP 3: CALL LLM                    │                                │
+│  │                                      │                                │
+│  │ Primary:  Qwen LLM (via HTTP API)   │                                │
+│  │ Fallback: Gemini  (via HTTP API)    │                                │
+│  │                                      │                                │
+│  │ Sends: system prompt + context +    │                                │
+│  │        conversation history +       │                                │
+│  │        student's question           │                                │
+│  └────────┬─────────────────────────────┘                                │
+│           │                                                              │
+│           ▼                                                              │
+│  ┌──────────────────────────────────────┐                                │
+│  │ STEP 4: POST-GUARDS                 │                                │
+│  │                                      │                                │
+│  │ 1. attendance guard:                │                                │
+│  │    Validates any attendance %       │                                │
+│  │    mentioned matches real data      │                                │
+│  │                                      │                                │
+│  │ 2. courseReference guard:            │                                │
+│  │    Validates course names match     │                                │
+│  │    actual curriculum                │                                │
+│  │                                      │                                │
+│  │ 3. numericValidation guard:          │                                │
+│  │    Checks GPA/SKS numbers match     │                                │
+│  │    real academic records            │                                │
+│  │                                      │                                │
+│  │ If ANY guard triggers:              │                                │
+│  └────────┬─────────────────────────────┘                                │
+│           │                                                              │
+│      ┌────┴──────────────────┐                                           │
+│      ▼                       ▼                                           │
+│  ┌──────────┐         ┌──────────────────────┐                           │
+│  │ All pass │         │ Guard triggered       │                          │
+│  │          │         │                        │                          │
+│  │          │         │ Retry with correction  │                          │
+│  │          │         │ prompt appended        │                          │
+│  │          │         │ (max 2 retries)        │                          │
+│  │          │         │                        │                          │
+│  │          │         │ Re-runs Steps 3 & 4    │                          │
+│  └────┬─────┘         └──────────┬─────────────┘                         │
+│       │                          │                                       │
+│       ▼                          ▼                                       │
+│  ┌──────────────────────────────────────┐                                │
+│  │ STEP 5: LOG & RESPOND               │                                │
+│  │                                      │                                │
+│  │ Save to ai_conversations table:     │                                │
+│  │ - mahasiswa_id                       │                                │
+│  │ - question (user input)             │                                │
+│  │ - response (LLM output)            │                                │
+│  │ - model_used (qwen/gemini)          │                                │
+│  │ - guards_triggered (array)          │                                │
+│  │ - retry_count                       │                                │
+│  │                                      │                                │
+│  │ Return response to frontend         │                                │
+│  └──────────────────────────────────────┘                                │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+**Guard System Summary:**
+
+| Guard | Type | Checks | Action on Trigger |
+|---|---|---|---|
+| `outOfContext` | Pre-guard | Is the question academic-related? | Reject with message |
+| `genericAssumptions` | Pre-guard | Is the input too vague? | Reject with message |
+| `attendance` | Post-guard | Do attendance percentages match DB? | Retry with correction |
+| `courseReference` | Post-guard | Do course names match curriculum? | Retry with correction |
+| `numericValidation` | Post-guard | Do GPA/SKS numbers match records? | Retry with correction |
+
+**LLM Fallback Strategy:**
+
+```
+Try Qwen API
+  │
+  ├─ Success → use response
+  │
+  └─ Failure (timeout, error, etc.)
+       │
+       ▼
+     Try Gemini API
+       │
+       ├─ Success → use response
+       │
+       └─ Failure → return error message to student
+```
+
+**Frontend:** The chat interface is built with Alpine.js using an `aiAdvisor()` component function. It manages:
+- Message history display
+- Input handling
+- Loading states during API calls
+- Error message display
+
+---
+
+### 5.5.2 Notifications
+
+**Purpose:** Delivers and manages in-app notifications for students.
+
+**Controllers:**
+- `Mahasiswa\NotificationController` — student notification list
+- `NotificationController` (shared) — mark read / mark all read
+
+**Service:** `NotificationService`
+
+**NotificationService Methods:**
+
+| Method | Description |
+|---|---|
+| `sendNotification($userId, $title, $body)` | Send a single notification |
+| `sendBulkNotifications($userIds, $title, $body)` | Send to multiple users |
+| `sendJadwalChangeNotification($kelasId, $changes)` | Domain-specific: notify enrolled students of schedule change |
+
+**Notification Data Model:**
+
+| Field | Description |
+|---|---|
+| `user_id` | Recipient |
+| `title` | Notification title |
+| `body` | Notification content |
+| `is_read` | Boolean, default false |
+| `read_at` | Timestamp when marked as read |
+| `created_at` | Timestamp when sent |
+
+**Actions:**
+
+| Action | Endpoint | Behavior |
+|---|---|---|
+| List notifications | `GET /mahasiswa/notifications` | Paginated list, newest first |
+| Mark single as read | `POST /notifications/{id}/read` | Sets `is_read=true`, `read_at=now()` |
+| Mark all as read | `POST /notifications/read-all` | Marks all unread notifications for the user |
+
+---
+
+### 5.5.3 Health Check
+
+**Purpose:** Exposes a JSON endpoint that reports the operational status of core infrastructure components.
+
+**Controller:** `HealthController`
+
+**Checks Performed:**
+
+| Component | Check | Healthy Response |
+|---|---|---|
+| Database | Runs a test query (`SELECT 1`) | `"database": "ok"` |
+| Cache | Writes and reads a test key | `"cache": "ok"` |
+| Storage | Checks filesystem write access | `"storage": "ok"` |
+
+**Response Format:**
+
+```json
+{
+  "status": "ok",
+  "checks": {
+    "database": "ok",
+    "cache": "ok",
+    "storage": "ok"
+  },
+  "timestamp": "2024-12-01T10:30:00Z"
+}
+```
+
+If any check fails, `status` changes to `"error"` and the failing component reports `"error"` with a message.
+
+**Access:** Public — no authentication required. Intended for uptime monitoring tools.
+
+---
+
+## 5.6 Service Layer Reference
+
+All business logic is extracted into service classes. Controllers call services; services interact with models and return results. This table summarizes every service and its consumers.
+
+| Service | Primary Consumers | Responsibilities |
+|---|---|---|
+| `ActivityLogService` | All controllers (via middleware or manual calls) | Writes audit trail entries: who did what, when, on which entity |
+| `AiAdvisorService` | `Mahasiswa\AiAdvisorController` | Orchestrates LLM calls with context building, pre/post-guards, retries, conversation logging |
+| `AkademikCalculationService` | `KhsController`, `TranskripController`, `ExportController` | Computes IPS (semester GPA), IPK (cumulative GPA), grade distribution, total SKS |
+| `AkademikService` | Master data controllers | CRUD operations on master data with 1-hour cache TTL |
+| `CacheService` | `AkademikService`, other services | Centralized cache get/put/forget with consistent key naming |
+| `JadwalService` | `JadwalKuliahController`, `KelasController` | Schedule conflict detection (dosen + room), schedule retrieval per student/dosen |
+| `KrsService` | `Mahasiswa\KrsController` | KRS lifecycle: add/remove kelas with 4-rule validation, submit |
+| `NotificationService` | Various controllers | Single/bulk notification delivery, domain-specific jadwal change notification |
+| `PenilaianService` | `Dosen\PenilaianController` | Grade entry: accepts numeric score, computes letter grade + GPA weight |
+| `PresensiService` | `Dosen\PresensiController`, `Mahasiswa\PresensiController` | Attendance recording per meeting, attendance summary computation (count + percentage) |
+| `UserService` | `Admin\MahasiswaController`, `Admin\DosenController`, `Admin\UserController` | Polymorphic user creation: creates User + role-specific profile in DB transaction |
+
+---
+
+## 5.7 Faculty Scoping Architecture
+
+Faculty scoping is the primary data isolation mechanism in SIAKAD. Admin_fakultas users only see data belonging to their faculty.
+
+**Implementation:**
+
+```
+┌────────────────────────────┐
+│  FakultasScopeMiddleware   │
+│                            │
+│  Runs on every admin route │
+│  Reads admin's fakultas_id │
+│  from AdminFakultas profile│
+│  Injects into request      │
+└────────┬───────────────────┘
+         │
+         ▼
+┌────────────────────────────────────────────────────┐
+│ Controller reads $request->fakultas_id             │
+│ and applies scope to queries:                      │
+│                                                    │
+│ Direct scope (Dosen, Ruangan):                     │
+│   ->where('fakultas_id', $fakultasId)              │
+│                                                    │
+│ One-level relation (Mahasiswa, MataKuliah):        │
+│   ->whereHas('prodi',                              │
+│       fn($q) => $q->where('fakultas_id', $fId))   │
+│                                                    │
+│ Two-level relation (Kelas):                        │
+│   ->whereHas('mataKuliah.prodi',                   │
+│       fn($q) => $q->where('fakultas_id', $fId))   │
+└────────────────────────────────────────────────────┘
+```
+
+**Scope Chain Depth by Entity:**
+
+| Entity | Scope Path | Depth |
+|---|---|---|
+| Dosen | `dosen.fakultas_id` | 0 (direct) |
+| Ruangan | `ruangan.fakultas_id` | 0 (direct) |
+| Prodi | `prodi.fakultas_id` | 0 (direct) |
+| Mahasiswa | `mahasiswa → prodi.fakultas_id` | 1 |
+| MataKuliah | `mata_kuliah → prodi.fakultas_id` | 1 |
+| Kelas | `kelas → mata_kuliah → prodi.fakultas_id` | 2 |
+| JadwalKuliah | `jadwal → kelas → mata_kuliah → prodi.fakultas_id` | 3 |
+
+---
+
+## 5.8 Rate Limiting Summary
+
+Three modules apply per-user rate limiting to prevent abuse:
+
+| Module | Limit | Scope |
+|---|---|---|
+| KRS (add/remove/submit) | 10 requests/minute | Per authenticated user |
+| Penilaian (grade entry) | 20 requests/minute | Per authenticated user |
+| AI Advisor (chat) | 10 requests/minute | Per authenticated user |
+
+Rate limiting is applied at the route level using Laravel's built-in `throttle` middleware.
+
+---
+
+## 5.9 Caching Strategy
+
+| What is Cached | TTL | Service | Invalidation |
+|---|---|---|---|
+| Master data (fakultas, prodi, mata_kuliah lists) | 1 hour | `AkademikService` via `CacheService` | On create/update/delete of the cached entity |
+
+Most modules (dashboard, KRS, penilaian, presensi) do not use caching — they query the database directly to reflect real-time state. The 1-hour cache on master data is appropriate because these records change infrequently.
+
+---
+
+## 5.10 Cross-Module Data Dependencies
+
+The following diagram shows how data flows between modules at runtime:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    DATA DEPENDENCY GRAPH                         │
+│                                                                  │
+│  TahunAkademik ──────────┬─────────────────┬──────────────┐     │
+│  (active year            │                 │              │     │
+│   controls everything)   │                 │              │     │
+│                          ▼                 ▼              ▼     │
+│                        Kelas            KRS           Penilaian │
+│                          │               │              │       │
+│                          ▼               │              │       │
+│                    JadwalKuliah          │              │       │
+│                          │               │              │       │
+│                          ▼               ▼              ▼       │
+│                      Presensi        KHS/Transkrip              │
+│                          │               │                      │
+│                          └───────┬───────┘                      │
+│                                  ▼                              │
+│                            AI Advisor                           │
+│                     (reads all academic data                    │
+│                      for context building)                      │
+│                                                                  │
+│  Master Data ────────▶ All Modules                              │
+│  (Fakultas, Prodi,    (read-only consumption)                   │
+│   MataKuliah,                                                    │
+│   Ruangan)                                                       │
+│                                                                  │
+│  UserService ────────▶ Mahasiswa Mgmt                           │
+│                ────────▶ Dosen Mgmt                              │
+│                ────────▶ User Mgmt                               │
+│                                                                  │
+│  NotificationService ──▶ JadwalKuliah                           │
+│                          (schedule change triggers              │
+│                           notifications to enrolled students)   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Key Dependency:** `TahunAkademik` with `is_active=true` is the single most critical piece of reference data. Almost every academic module filters by the active academic year. If no `TahunAkademik` is active, KRS, Penilaian, Jadwal, and KHS features stop functioning.
+
+---
+
+## 5.11 Module Implementation Patterns
+
+All 18 modules follow consistent implementation patterns:
+
+### Controller Pattern
+
+```php
+class SomeController extends Controller
+{
+    public function __construct(
+        private SomeService $service,
+    ) {}
+
+    public function index(Request $request)
+    {
+        // 1. Read scope from request (fakultas_id, user profile)
+        // 2. Build query with scoping
+        // 3. Apply search/filter from request params
+        // 4. Paginate
+        // 5. Return Blade view with data
+    }
+
+    public function store(SomeFormRequest $request)
+    {
+        // 1. Validation handled by FormRequest
+        // 2. Call service method
+        // 3. Redirect with flash message
+    }
+}
+```
+
+### Service Pattern
+
+```php
+class SomeService
+{
+    public function performAction($validated): Result
+    {
+        // 1. Additional business rule checks
+        // 2. DB::transaction for multi-model operations
+        // 3. Return result or throw exception
+    }
+}
+```
+
+### Faculty Scope Pattern
+
+```php
+// Applied in every admin controller query
+$query->whereHas('prodi', fn ($q) =>
+    $q->where('fakultas_id', $request->fakultas_id)
+);
+```
+
+### Transaction Pattern (User/Record Creation)
+
+```php
+DB::transaction(function () use ($data) {
+    $user = User::create([...]);
+    Profile::create(['user_id' => $user->id, ...]);
+});
+```
+
+These patterns repeat across all modules with domain-specific variations in the validation rules and business logic.
+
+---
+
+## Chapter Summary
+
+SIAKAD's 18 modules cover the complete academic lifecycle:
+
+1. **Administrative modules** (Dashboard, Mahasiswa/Dosen/User Mgmt, Master Data) provide the data foundation that all other modules depend on.
+
+2. **Academic core modules** (Kelas, Jadwal, KRS, KHS, Transkrip, Export) handle the semester-by-semester academic workflow from class creation through grade reporting.
+
+3. **Assessment modules** (Penilaian, Presensi) capture the two primary evaluation data points: grades and attendance.
+
+4. **Supervision modules** (Skripsi, Kerja Praktek, LMS) manage longer-term academic activities that span multiple meetings or months.
+
+5. **Supporting modules** (AI Advisor, Notifications, Health) provide auxiliary functionality — the AI Advisor being the most architecturally complex with its guard system and LLM fallback chain.
+
+The service layer extracts all business logic from controllers, and faculty scoping through `FakultasScopeMiddleware` provides consistent data isolation across the entire admin interface. The active `TahunAkademik` record acts as the temporal anchor for all semester-specific operations.
