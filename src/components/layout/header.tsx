@@ -16,12 +16,6 @@ export function Header() {
 
         <nav className="hidden md:flex items-center gap-6">
           <ThemeToggle />
-          <Link
-            to="/"
-            className="text-xs font-mono uppercase tracking-widest text-muted-foreground transition-colors duration-100 hover:text-foreground"
-          >
-            Home
-          </Link>
         </nav>
       </div>
     </header>

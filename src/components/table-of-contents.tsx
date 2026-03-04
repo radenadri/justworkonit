@@ -26,7 +26,7 @@ export function TableOfContents({ className }: TableOfContentsProps) {
     elements.forEach(el => {
       const id = el.id;
       const text = el.textContent ?? "";
-      const level = parseInt(el.tagName[1], 10);
+      const level = parseInt(el.tagName.charAt(1), 10);
       if (id && text) {
         extracted.push({ id, text, level });
       }
@@ -76,7 +76,7 @@ export function TableOfContents({ className }: TableOfContentsProps) {
 
   return (
     <nav className={className ?? "hidden xl:block"} aria-label="Table of contents">
-      <div className="sticky top-24">
+      <div className="sticky top-24 max-h-[calc(100vh-8rem)] overflow-y-auto pr-2">
         <h4 className="font-heading mb-3 text-xs font-bold uppercase tracking-widest text-neutral-400">
           On this page
         </h4>
@@ -94,11 +94,10 @@ export function TableOfContents({ className }: TableOfContentsProps) {
                     .getElementById(heading.id)
                     ?.scrollIntoView({ behavior: "smooth" });
                 }}
-                className={`block border-l-2 py-0.5 pl-3 transition-colors ${
-                  activeId === heading.id
-                    ? "border-black font-medium text-black"
-                    : "border-transparent text-neutral-500 hover:text-black"
-                }`}
+                className={`block border-l-2 py-0.5 pl-3 transition-colors ${activeId === heading.id
+                  ? "border-black font-medium text-black"
+                  : "border-transparent text-neutral-500 hover:text-black"
+                  }`}
               >
                 {heading.text}
               </a>
