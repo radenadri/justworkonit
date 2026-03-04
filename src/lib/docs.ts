@@ -32,12 +32,13 @@ function extractOrder(filename: string): number {
 
 function formatCollectionLabel(name: string): string {
   const labels: Record<string, string> = {
-    blind75: "Blind 75 — LeetCode",
-    "focus-wp": "Focus — WordPress",
-    inventra: "Inventra",
-    "furnicraft-odoo": "Furnicraft — Odoo ERP",
+    blind75: "Blind 75",
+    "focus-wp": "Focus - WordPress",
+    "furnicraft-odoo": "Furnicraft — Odoo",
     "furnicraft-woo": "Furnicraft — WooCommerce",
-    "belajar-rust": "Belajar Rust",
+    "fullstack-nextjs": "Next",
+    inventra: "Inventra",
+    "web3-projects": "Web3",
   };
   return labels[name] ?? name.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
