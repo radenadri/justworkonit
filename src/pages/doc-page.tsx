@@ -60,7 +60,7 @@ export function DocPage() {
       {/* Content */}
       <article className="flex-1 min-w-0 px-6 md:px-12 py-8 md:py-12">
         {/* Breadcrumb */}
-        <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-widest text-muted-foreground mb-8">
+        <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-widest text-muted-foreground mb-10 animate-entrance stagger-1">
           <Link to="/" className="transition-colors duration-100 hover:text-foreground">
             Home
           </Link>
@@ -76,46 +76,48 @@ export function DocPage() {
         </div>
 
         {/* Title */}
-        <h1 className="font-heading text-3xl md:text-4xl font-bold tracking-tight mb-8">
+        <h1 className="font-heading text-4xl md:text-5xl font-bold tracking-tight mb-8 animate-entrance stagger-2">
           {doc.title}
         </h1>
 
-        <div className="h-0.5 bg-foreground mb-8" />
+        <div className="h-1 bg-foreground mb-12 animate-entrance stagger-2" />
 
         {/* MDX content */}
-        <ProgressProvider docKey={`${collection}/${slug}`}>
-          <MdxRenderer Content={doc.Content} />
-        </ProgressProvider>
+        <div className="animate-entrance stagger-3">
+          <ProgressProvider docKey={`${collection}/${slug}`}>
+            <MdxRenderer Content={doc.Content} />
+          </ProgressProvider>
+        </div>
 
         {/* Prev / Next navigation */}
-        <div className="mt-16 pt-8 border-t-2 border-foreground">
-          <div className="flex justify-between gap-4">
+        <div className="mt-24 pt-12 border-t-2 border-foreground animate-entrance stagger-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             {prevDoc ? (
               <Link
                 to={prevPath!}
-                className="group flex-1 border-2 border-foreground p-4 transition-colors duration-100 hover:bg-foreground hover:text-background"
+                className="group flex flex-col border-2 border-foreground p-6 transition-all duration-200 hover:transform hover:-translate-y-1 hover:shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] dark:hover:shadow-[8px_8px_0px_0px_rgba(255,255,255,1)]"
               >
-                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground group-hover:text-background/70 mb-1">
+                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-2">
                   ← Previous
                 </div>
-                <div className="font-heading font-bold truncate">{prevDoc.title}</div>
+                <div className="font-heading text-lg font-bold truncate">{prevDoc.title}</div>
               </Link>
             ) : (
-              <div className="flex-1" />
+              <div />
             )}
 
             {nextDoc ? (
               <Link
                 to={nextPath!}
-                className="group flex-1 border-2 border-foreground p-4 text-right transition-colors duration-100 hover:bg-foreground hover:text-background"
+                className="group flex flex-col border-2 border-foreground p-6 text-right transition-all duration-200 hover:transform hover:-translate-y-1 hover:shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] dark:hover:shadow-[8px_8px_0px_0px_rgba(255,255,255,1)]"
               >
-                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground group-hover:text-background/70 mb-1">
+                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-2">
                   Next →
                 </div>
-                <div className="font-heading font-bold truncate">{nextDoc.title}</div>
+                <div className="font-heading text-lg font-bold truncate">{nextDoc.title}</div>
               </Link>
             ) : (
-              <div className="flex-1" />
+              <div />
             )}
           </div>
         </div>

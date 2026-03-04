@@ -44,10 +44,10 @@ function CollectionSection({
       <button
         onClick={() => setOpen(!open)}
         className={cn(
-          "flex items-center justify-between w-full text-left px-3 py-2 text-xs font-mono uppercase tracking-widest transition-colors duration-100",
+          "flex items-center justify-between w-full text-left px-3 py-2 text-[11px] font-mono uppercase tracking-widest transition-all duration-150",
           isActive
-            ? "text-foreground font-bold"
-            : "text-muted-foreground hover:text-foreground"
+            ? "text-foreground font-bold border-b-2 border-foreground"
+            : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
         )}
       >
         <span>{collection.label}</span>
@@ -63,9 +63,9 @@ function CollectionSection({
                 onClick={onNavigate}
                 className={({ isActive }) =>
                   cn(
-                    "block px-3 py-1.5 text-sm transition-colors duration-100",
+                    "block px-3 py-2 text-sm transition-all duration-150 relative",
                     isActive
-                      ? "bg-foreground text-background font-medium"
+                      ? "bg-foreground text-background font-bold shadow-[4px_4px_0px_0px_rgba(0,0,0,0.1)] dark:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.1)]"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted"
                   )
                 }
